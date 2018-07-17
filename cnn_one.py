@@ -40,6 +40,7 @@ class CNN_ONE(nn.Module):
 
         self.w2v = nn.Embedding(self.vocab_size, self.word_embed_size)
         self.pos1_embed = nn.Embedding(self.pos_limit * 2 + 1, self.pos_embed_size)
+        # self.pos2_embed = nn.Embedding(self.pos_limit * 2 + 1, self.pos_embed_size)
         # pretrained embedding
         self.w2v.weight = nn.Parameter(torch.FloatTensor(settings['word_embeds']), requires_grad=True)
 
