@@ -6,6 +6,7 @@ import torch
 import pdb
 import random
 import pickle
+import process
 # import attacker
 from collections import defaultdict
 import numpy as np
@@ -23,8 +24,10 @@ class Riedel_10(data.Dataset):
         self.mode = train_test
         if self.mode == 'train':
             self.filename = 'train.txt'
+            # self.filename = 'train.head'
         else:
             self.filename = 'test.txt'
+            # self.filename = 'test.head'
 
         self.vec_name = 'vec.bin'
         self.rel_name = 'relation2id.txt'
@@ -36,7 +39,7 @@ class Riedel_10(data.Dataset):
         # relation position limit
         self.limit = 30
         self.prepare_data()
-        self.keys = list(self.dict.keys())
+        self.keys = sorted(list(self.dict.keys()))
         # self.n_rel = len(self.rel2id)
         # self.vocab_size = len(self.w2id)
 
@@ -124,8 +127,6 @@ class Riedel_10(data.Dataset):
             self.bag2rel[key].add(rel)
 
     def collate_fn(self, data):
-        # pdb.set_trace()
-        # return
         return data
 
     def __len__(self):
@@ -177,6 +178,60 @@ class Riedel_10(data.Dataset):
             en_vecs[int(val)] = tmp_func(name)
         return en2id, en_vecs
 
+
+class WIKI_TIME(data.Dataset):
+    def __init__(self, root, train_test='train', transform=None, position_embed=True):
+        if train_test == 'train':
+            file_name = 'mini_train_temporal_v2.txt'
+        else:
+            file_name = 'mini_test_temporal_v2.txt'
+        vec_name = 'glove.txt'
+        self.w_to_ix, self.vecs = process.read_in_vec(os.path.join(root, vec_name))
+        # length of en2id > en_vecs
+        self.en2id, self.en_vecs = process.read_in_en_vecs(os.path.join(root, "trained_vecs_50.npy"),
+                                                  os.path.join(root, "entity2id.txt"))
+        assert len(self.w_to_ix) == self.vecs.shape[0]
+        # dict : [(en1_poss, en2_pos, [word,]),]
+
+        self.labels = process.create_labels()
+        self.dict, self.rel_to_ix, self.natural = process.construct_dataset(os.path.join(root, file_name), self.labels, self.w_to_ix,
+                                                      train_test=train_test, en2id=self.en2id)
+        # the length of en2id could be update in func : construct_dataset
+        self.n_entity = len(self.en2id)
+        self.key_list = list(self.dict.keys())
+
+        self.vocab_size = self.vecs.shape[0]
+        self.n_rel = len(self.rel_to_ix)
+        self.max_sent_size = 50
+        # if position_embed:
+
+        print("Vocab_size is:")
+        print(self.vocab_size)
+        print("Relation number is:")
+        print(self.n_rel)
+        print("# of bags:")
+        print(self.__len__())
+
+    def __getitem__(self, index):
+        # multi-instance learning
+        # using bag as inputs
+        ret = []
+        en_pair = list(self.key_list)[index]
+
+        # there are Mention objects in the bag
+        bag = self.dict[en_pair]
+
+        ret['bag'] = bag
+        ret['label'] = [item.tag for item in bag]
+        ret['en_pair'] = en_pair
+
+        return ret
+
+    def __len__(self):
+        return len(self.key_list)
+
+    def collate_fn(self, data):
+        return data
 
 if __name__ == '__main__':
     root = '/data/yanjianhao/nlp/torch/torch_NRE/origin_data'
