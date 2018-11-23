@@ -1,5 +1,6 @@
 import numpy as np
 import pdb
+import torch
 
 # create one-hot
 # not needed when labels are already one-hot
@@ -8,13 +9,20 @@ def one_hot(ids, n_rel):
     ids: numpy array or list shape:[batch_size,]
     n_rel: # of relation to classify
     """
-    labels = np.zeros((ids.shape[0], n_rel))
-    labels[np.arange(ids.shape[0]), ids] = 1
+    labels = torch.zeros((ids.shape[0], n_rel)).cuda()
+    labels[torch.arange(ids.shape[0]).long(), ids.long()] = 1
     return labels
 
-# n_rel = 53
-# labels = one_hot(y_true, n_rel)
-# print(labels.shape)
+
+def multi_hot_label(ids, n_rel):
+    """
+    ids: list shape:[batch_size, m]
+    n_rel: # of relation to classify
+    """
+    labels = torch.zeros((len(ids), n_rel)).cuda()
+    for i in range(len(labels)):
+        labels[torch.Tensor([i]*ids[i].shape[0]).long().cuda(), ids[i]] = 1
+    return labels
 
 
 def precision_recall_compute_multi(labels, y_pred):

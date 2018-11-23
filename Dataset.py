@@ -91,6 +91,7 @@ class Riedel_10(data.Dataset):
         # pos1_max, pos1_min = 0, 0
         # pos2_max, pos2_min = 0, 0
         self.bag2rel = defaultdict(set)
+        self.pos_idx = dict()
         with open(os.path.join(self.root, self.filename), 'r') as f:
             lines = f.readlines()
         for line in lines:
@@ -117,12 +118,14 @@ class Riedel_10(data.Dataset):
                 conr = pos2 - j + self.limit
                 conr = max(0, conr)
                 conr = min(self.limit * 2, conr)
-                con.append([sent[j], conl, conr])
+                con.append([sent[j], conl, conr, pos1, pos2])
 
-            if self.mode == 'train':
+            use_whole_bag = True
+            if self.mode == 'train' and not use_whole_bag:
                 key = (e1, e2, rel)
             else:
                 key = (e1, e2)
+            self.pos_idx[key] = (pos1, pos2)
             self.dict[key].append(con)
             self.bag2rel[key].add(rel)
 
@@ -135,6 +138,7 @@ class Riedel_10(data.Dataset):
     def __getitem__(self, item):
         key = self.keys[item]
         bag = []
+
         for item in self.dict[key]:
             bag.append(torch.cuda.LongTensor(item))
 
@@ -143,12 +147,15 @@ class Riedel_10(data.Dataset):
         #     target[rel] = 1
         # target = torch.
         target = self.bag2rel[key]
+        # target in shape [1]
         target = torch.cuda.LongTensor(list(target))
 
         ret = {}
         ret['bag'] = bag
         ret['label'] = target
         ret['en_pair'] = (self.en2id[key[0]], self.en2id[key[1]])
+        # ret['pos1_idx'] = self.pos_idx[key][0]
+        # ret['pos2_idx'] = self.pos_idx[key][1]
         # return self.dict[key]
         return ret
     # def collate_fn(self):
@@ -186,11 +193,11 @@ class WIKI_TIME(data.Dataset):
         else:
             file_name = 'mini_test_temporal_v2.txt'
         vec_name = 'glove.txt'
-        self.w_to_ix, self.vecs = process.read_in_vec(os.path.join(root, vec_name))
+        self.w_to_ix, self.w2v = process.read_in_vec(os.path.join(root, vec_name))
         # length of en2id > en_vecs
         self.en2id, self.en_vecs = process.read_in_en_vecs(os.path.join(root, "trained_vecs_50.npy"),
                                                   os.path.join(root, "entity2id.txt"))
-        assert len(self.w_to_ix) == self.vecs.shape[0]
+        assert len(self.w_to_ix) == self.w2v.shape[0]
         # dict : [(en1_poss, en2_pos, [word,]),]
 
         self.labels = process.create_labels()
@@ -200,9 +207,10 @@ class WIKI_TIME(data.Dataset):
         self.n_entity = len(self.en2id)
         self.key_list = list(self.dict.keys())
 
-        self.vocab_size = self.vecs.shape[0]
+        self.vocab_size = self.w2v.shape[0]
         self.n_rel = len(self.rel_to_ix)
         self.max_sent_size = 50
+        self.limit = 30
         # if position_embed:
 
         print("Vocab_size is:")
@@ -215,14 +223,21 @@ class WIKI_TIME(data.Dataset):
     def __getitem__(self, index):
         # multi-instance learning
         # using bag as inputs
-        ret = []
+        ret = dict()
         en_pair = list(self.key_list)[index]
 
         # there are Mention objects in the bag
         bag = self.dict[en_pair]
 
-        ret['bag'] = bag
-        ret['label'] = [item.tag for item in bag]
+        # ret['bag'] = bag
+        bag,labels = self.extract_mentions(bag)
+        tensor_bag = []
+        for item in bag:
+            tensor_bag.append(torch.cuda.LongTensor(item))
+
+        tensor_labels = torch.cuda.LongTensor(labels)
+        ret['bag'] = tensor_bag
+        ret['label'] = tensor_labels
         ret['en_pair'] = en_pair
 
         return ret
@@ -233,6 +248,31 @@ class WIKI_TIME(data.Dataset):
     def collate_fn(self, data):
         return data
 
-if __name__ == '__main__':
-    root = '/data/yanjianhao/nlp/torch/torch_NRE/origin_data'
-    dataset = Riedel_10(root)
+    def collate_bag_fn(self, data):
+        for item in data:
+            item['label'] = item['label'][-1].reshape(1)
+                # .reshape(1, -1)
+        return data
+
+    def extract_mentions(self, mentions):
+        ret = []
+        labels = []
+        for item in mentions:
+            sent_len = len(item.sent)
+            pos1 = item.pos[0]
+            pos2 = item.pos[1]
+            con = []
+            for j in range(sent_len):
+                conl = pos1 - j + self.limit
+                conl = max(0, conl)
+                conl = min(self.limit * 2, conl)
+                conr = pos2 - j + self.limit
+                conr = max(0, conr)
+                conr = min(self.limit * 2, conr)
+                con.append([item.sent[j], conl, conr])
+            ret.append(con)
+            labels.append(item.tag)
+
+        return ret, labels
+
+

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="110320c5-fb00-42b3-aabb-41fd7d695135" name="229" url="http://166.111.141.229">
+        <fileTransfer host="166.111.141.229" port="1302" rootFolder="/data/yanjianhao" accessType="SFTP">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" />
+          </advancedOptions>
+          <option name="port" value="1302" />
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>

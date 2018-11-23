@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import sklearn.metrics as metrics
 import argparse
 import math
+from pcnn import PCNN
 
 # from dataset import Dataset, Temporal_Data
 # from dataset import collate_fn, collate_fn_temporal_for_pcnn, collate_fn_temporal, collate_fn1
@@ -20,56 +21,60 @@ import math
 class PCNN_ATT(nn.Module):
     def __init__(self, settings):
         super(PCNN_ATT, self).__init__()
-        self.word_embed_size = settings['word_embed_size']
-        self.pos_embed_size = settings['pos_embed_size']
-        self.input_size = self.word_embed_size + 2 * self.pos_embed_size
+        # self.word_embed_size = settings['word_embed_size']
+        # self.pos_embed_size = settings['pos_embed_size']
+        # self.input_size = self.word_embed_size + 2 * self.pos_embed_size
         self.out_c = settings['out_c']
-        self.window = 3
+        # self.window = 3
         self.n_rel = settings['n_rel']
-        self.vocab_size = settings['vocab_size']
-        self.pos_limit = settings['pos_limit']
-
-        # torch.cuda.manual_seed(2)
-        # torch.manual_seed(2)
-
-        self.conv = nn.Conv1d(1, self.out_c, (self.window, self.input_size), padding=(self.window//2, 1-self.window//2), bias=False)
+        # self.vocab_size = settings['vocab_size']
+        # self.pos_limit = settings['pos_limit']
+        #
+        # # torch.cuda.manual_seed(2)
+        # # torch.manual_seed(2)
+        #
+        # self.conv = nn.Conv1d(1, self.out_c, (self.window, self.input_size), padding=(self.window//2, 1-self.window//2), bias=False)
         self.feature_size = 3 * self.out_c
-        self.conv_bias_0 = nn.Parameter(torch.zeros(1, self.out_c),requires_grad=True)
-        self.conv_bias_1 = nn.Parameter(torch.zeros(1, self.out_c),requires_grad=True)
-        self.conv_bias_2 = nn.Parameter(torch.zeros(1, self.out_c),requires_grad=True)
-
+        # self.conv_bias_0 = nn.Parameter(torch.zeros(1, self.out_c),requires_grad=True)
+        # self.conv_bias_1 = nn.Parameter(torch.zeros(1, self.out_c),requires_grad=True)
+        # self.conv_bias_2 = nn.Parameter(torch.zeros(1, self.out_c),requires_grad=True)
+        #
         self.r_embed = nn.Parameter(torch.zeros(self.n_rel, self.feature_size), requires_grad=True)
         self.r_bias = nn.Parameter(torch.zeros(self.n_rel), requires_grad=True)
-
-        self.tanh = nn.Tanh()
+        #
+        # self.tanh = nn.Tanh()
         self.dropout = nn.Dropout(settings['dropout_p'])
         self.pred_sm = nn.LogSoftmax(dim=-1)
         self.atten_sm = nn.Softmax(dim=-1)
-        self.limit = 30
-
-        self.w2v = nn.Embedding(self.vocab_size, self.word_embed_size)
-        self.pos1_embed = nn.Embedding(self.pos_limit * 2 + 1, self.pos_embed_size)
-        self.pos2_embed = nn.Embedding(self.pos_limit * 2 + 1, self.pos_embed_size)
-        # pretrained embedding
-        self.w2v.weight = nn.Parameter(torch.FloatTensor(settings['word_embeds']), requires_grad=True)
-
+        # self.limit = 30
+        #
+        # self.w2v = nn.Embedding(self.vocab_size, self.word_embed_size)
+        # self.pos1_embed = nn.Embedding(self.pos_limit * 2 + 1, self.pos_embed_size)
+        # self.pos2_embed = nn.Embedding(self.pos_limit * 2 + 1, self.pos_embed_size)
+        # # pretrained embedding
+        # self.w2v.weight = nn.Parameter(torch.FloatTensor(settings['word_embeds']), requires_grad=True)
+        #
         eye = torch.eye(self.feature_size, self.feature_size)
         self.att_W = nn.Parameter(eye.expand(self.n_rel, self.feature_size, self.feature_size), requires_grad=True)
-
-        # init
-        con = math.sqrt(6.0/(self.out_c + self.n_rel))
-        con1 = math.sqrt(6.0 / ((self.pos_embed_size + self.word_embed_size)*self.window))
-        nn.init.uniform_(self.conv.weight, a=-con1, b=con1)
-        nn.init.uniform_(self.conv_bias_0, a=-con1, b=con1)
-        nn.init.uniform_(self.conv_bias_1, a=-con1, b=con1)
-        nn.init.uniform_(self.conv_bias_2, a=-con1, b=con1)
+        #
+        # # init
+        con = math.sqrt(6.0/(self.feature_size + self.n_rel))
+        # con1 = math.sqrt(6.0 / ((self.pos_embed_size + self.word_embed_size)*self.window))
+        # nn.init.uniform_(self.conv.weight, a=-con1, b=con1)
+        # nn.init.uniform_(self.conv_bias_0, a=-con1, b=con1)
+        # nn.init.uniform_(self.conv_bias_1, a=-con1, b=con1)
+        # nn.init.uniform_(self.conv_bias_2, a=-con1, b=con1)
         nn.init.uniform_(self.r_embed, a=-con, b=con)
         nn.init.uniform_(self.r_bias, a=-con, b=con)
+        self.pcnn = PCNN(settings)
 
     def forward(self, input):
         bags = [item['bag'] for item in input]
         labels = [item['label'] for item in input]
-        s = self._create_sentence_embedding(bags, labels)
+        # s = self._create_sentence_embedding(bags, labels)
+        features = self.pcnn(input)
+        s = self.fusion(features)
+
         bz = len(labels)
         if self.training:
             s = s[torch.arange(0, bz).long().cuda(), labels]
@@ -80,6 +85,22 @@ class PCNN_ATT(nn.Module):
             scores = torch.matmul(s, self.r_embed.t()) + self.r_bias
             pred = self.pred_sm(scores.view(-1, self.n_rel)).view(bz, self.n_rel, self.n_rel).max(1)[0]
         return pred
+
+    def fusion(self, features):
+        ret = []
+        for feature in features:
+            atten_weights = self.atten_sm(torch.bmm(self.r_embed.unsqueeze(1),
+                                                    torch.matmul(self.att_W, feature.t())).squeeze(1))
+            # to this point, features is actually s
+            # n_rel * D
+            feature = torch.matmul(atten_weights, feature)
+            if self.pcnn.dropout is not None:
+                feature = self.dropout(feature)
+                if not self.training:
+                    feature = feature * 0.5
+            ret.append(feature)
+        return torch.stack(ret)
+
 
     def _create_sentence_embedding(self, bags, labels):
         batch_features = []

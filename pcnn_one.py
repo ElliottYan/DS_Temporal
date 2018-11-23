@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import sklearn.metrics as metrics
 import argparse
 import math
+from pcnn import PCNN
 
 # from dataset import Dataset, Temporal_Data
 # from dataset import collate_fn, collate_fn_temporal_for_pcnn, collate_fn_temporal, collate_fn1
@@ -58,12 +59,31 @@ class PCNN_ONE(nn.Module):
         nn.init.uniform_(self.r_embed, a=-con, b=con)
         nn.init.uniform_(self.r_bias, a=-con, b=con)
         self.limit = 30
+        self.pcnn = PCNN(settings)
 
     def forward(self, input):
         bags = [item['bag'] for item in input]
         labels = [item['label'] for item in input]
         preds = self._create_sentence_embedding(bags, labels)
+        debug = True
+        if debug:
+            # pcnn module returns a list of batch features
+            features = self.pcnn(input)
+            preds = self.fusion(features, labels)
         return torch.cat(preds, dim=0)
+
+    def fusion(self, features, labels):
+        ret = []
+        for ix, feature in enumerate(features):
+            label = labels[ix]
+            feature = torch.matmul(feature, self.pcnn.r_embed.t())
+            feature = self.pred_sm(feature)
+            if self.training:
+                feature = feature[torch.max(feature, dim=0)[1][label]]
+            else:
+                feature = torch.max(feature, dim=0)[0].view(1, -1)
+            ret.append(feature)
+        return ret
 
     def _create_sentence_embedding(self, bags, labels):
         batch_features = []

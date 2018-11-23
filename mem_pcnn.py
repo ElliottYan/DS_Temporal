@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import sklearn.metrics as metrics
 import math
 import numpy as np
+from pcnn import PCNN
 # from utils import pad_sequence, pad_labels, to_var, clip
 
 torch.cuda.manual_seed(1)
@@ -55,9 +56,9 @@ class GroupBatchnorm2d(nn.Module):
         return x * self.gamma + self.beta
 
 # mem net model used for riedel model
-class MEM_CNN_RIEDEL(nn.Module):
+class MEM_PCNN_RIEDEL(nn.Module):
     def __init__(self, settings):
-        super(MEM_CNN_RIEDEL, self).__init__()
+        super(MEM_PCNN_RIEDEL, self).__init__()
 
         self.use_cuda = settings['use_cuda']
         self.cuda_devices = [4, 5, 6, 7]
@@ -84,6 +85,17 @@ class MEM_CNN_RIEDEL(nn.Module):
         self.version = settings['version']
         self.remove_origin_query = settings['remove_origin_query']
 
+        # too : here we only have one convolution layer, the results only depends on 3 words windows.
+        # cannot case big picture results
+        # maybe more layers of CNN
+        self.window = 3
+        self.conv = nn.Conv2d(1, self.out_c, (self.window, self.features_size), padding=(self.window-1, 0), bias=False)
+        self.conv_bias = nn.Parameter(torch.zeros(1, self.out_c),requires_grad=True)
+
+        # self.r_embed = nn.Embedding(self.n_rel, self.query_dim)
+        # self.r_bias = nn.Parameter(torch.randn(self.n_rel), requires_grad=True)
+
+
         self.w2v = nn.Embedding(self.vocab_size, self.word_embed_size, padding_idx=self.vocab_size-1)
         # word embedding
         if pre_word_embeds is not None:
@@ -99,13 +111,6 @@ class MEM_CNN_RIEDEL(nn.Module):
         else:
             self.features_size -= 2 * self.pos_embed_size
 
-        # too : here we only have one convolution layer, the results only depends on 3 words windows.
-        # cannot case big picture results
-        # maybe more layers of CNN
-        self.window = 3
-        self.conv = nn.Conv2d(1, self.out_c, (self.window, self.features_size), padding=(self.window-1, 0), bias=False)
-        self.conv_bias = nn.Parameter(torch.zeros(1, self.out_c),requires_grad=True)
-
         self.memory_decay_weight = settings['memory_decay_weight']
 
         # entity embeddings for creating queries
@@ -119,7 +124,7 @@ class MEM_CNN_RIEDEL(nn.Module):
             self.en_embed.weight.data[:pre_length] = torch.FloatTensor(pre_en_embeds)
 
         self.bag_size = 30
-        self.out_feature_size = self.out_c
+        self.out_feature_size = self.out_c * 3
 
         self.bag_size = 30
         order_embed = settings['order_embed']
@@ -138,10 +143,8 @@ class MEM_CNN_RIEDEL(nn.Module):
 
         self.order_weight = settings['order_weight']
 
-        self.r_embed = nn.Parameter(torch.zeros(self.n_rel, self.out_c), requires_grad=True)
+        self.r_embed = nn.Parameter(torch.zeros(self.n_rel, self.out_feature_size), requires_grad=True)
         self.r_bias = nn.Parameter(torch.zeros(self.n_rel), requires_grad=True)
-
-        self.ln = nn.LayerNorm(self.out_feature_size)
 
         self.query_dim = self.out_feature_size
         self.phi_q = nn.Parameter(torch.randn(self.en_embed_size, self.query_dim), requires_grad=True)
@@ -186,14 +189,16 @@ class MEM_CNN_RIEDEL(nn.Module):
         con = math.sqrt(6.0/(self.out_c + self.n_rel))
         nn.init.uniform_(self.r_embed, a=-con, b=con)
         nn.init.uniform_(self.r_bias, a=-con, b=con)
+        self.pcnn = PCNN(settings)
 
     def forward(self, inputs):
         # the return of cnn is stored as memories for latter query.
         bz = len(inputs)
         # pdb.set_trace()
-        mem_bags = self._create_sentence_embedding(inputs)
+        # mem_bags = self._create_sentence_embedding(inputs)
         # first I try the queries with time.
         # queries = self._create_queries_2(kwargs['en_pairs'])
+        mem_bags = self.pcnn(inputs)
         if self.query_type == 'ENTITY':
             queries = self._create_queries_2(inputs)
         elif self.query_type == 'SELF':
@@ -214,33 +219,33 @@ class MEM_CNN_RIEDEL(nn.Module):
             pred = self.pred_sm(scores.view(-1, self.n_rel)).view(bz, self.n_rel, self.n_rel).max(1)[0]
         return pred
 
-    # todo: also wanna use self-attention to form the encoding part.
-    def _create_sentence_embedding(self, inputs):
-        bags = [item['bag'] for item in inputs]
-        batch_features = []
-        for ix, bag in enumerate(bags):
-            features = []
-            for item in bag:
-                w2v = self.w2v(item.t()[0])
-                # this may need some modification for further use.
-                pos1 = self.pos1_embed(item[:, 1])
-                pos2 = self.pos2_embed(item[:, 2])
-                feature = torch.cat([w2v, pos1, pos2], dim=-1).unsqueeze(0).unsqueeze(0)
-                feature = self.conv(feature).squeeze(-1)
-                feature = F.max_pool1d(feature, feature.size(-1)).squeeze(-1) + self.conv_bias
-                # this tanh is little different from lin-16's.
-                feature = self.tanh(feature)
-                feature = self.dropout(feature)
-                # dropout is a little different too.
-                features.append(feature)
-
-            # shape : bag_size * D
-            features = torch.cat(features, dim=0)
-            features = self.dropout(features)
-            # features = self.ln(features)
-
-            batch_features.append(features)
-        return batch_features
+    # # todo: also wanna use self-attention to form the encoding part.
+    # def _create_sentence_embedding(self, inputs):
+    #     bags = [item['bag'] for item in inputs]
+    #     batch_features = []
+    #     for ix, bag in enumerate(bags):
+    #         features = []
+    #         for item in bag:
+    #             w2v = self.w2v(item.t()[0])
+    #             # this may need some modification for further use.
+    #             pos1 = self.pos1_embed(item[:, 1])
+    #             pos2 = self.pos2_embed(item[:, 2])
+    #             feature = torch.cat([w2v, pos1, pos2], dim=-1).unsqueeze(0).unsqueeze(0)
+    #             feature = self.conv(feature).squeeze(-1)
+    #             feature = F.max_pool1d(feature, feature.size(-1)).squeeze(-1) + self.conv_bias
+    #             # this tanh is little different from lin-16's.
+    #             feature = self.tanh(feature)
+    #             feature = self.dropout(feature)
+    #             # dropout is a little different too.
+    #             features.append(feature)
+    #
+    #         # shape : bag_size * D
+    #         features = torch.cat(features, dim=0)
+    #         features = self.dropout(features)
+    #         # features = self.ln(features)
+    #
+    #         batch_features.append(features)
+    #     return batch_features
 
     def _create_queries(self, en_pairs):
         lookup_var = torch.cuda.LongTensor(en_pairs)
@@ -366,196 +371,3 @@ class MEM_CNN_RIEDEL(nn.Module):
             # ret.append(scores)
         ans = torch.stack(ret)
         return ans
-
-class MEM_CNN_WIKI(MEM_CNN_RIEDEL):
-    def __init__(self, settings):
-        super(MEM_CNN_WIKI, self).__init__(settings)
-        self.bilinear = nn.Parameter(torch.randn(self.query_dim, self.out_c), requires_grad=True)
-
-        self.query_dim = 100
-        memory_dim = self.query_dim
-        if self.order_embed is not None:
-            memory_dim += self.order_embed_size
-        for i in range(self.max_hops):
-            # also add bias ?
-            C = nn.Linear(self.out_feature_size, memory_dim, bias=False)
-            C.weight.data.normal_(0, 0.1)
-            self.add_module('C_{}'.format(i), C)
-        self.C = AttrProxy(self, 'C_')
-
-        # relation embedding size is the same as MEM's output
-        self.r_embed = nn.Parameter(torch.zeros(self.n_rel, self.query_dim))
-        self.r_bias = nn.Parameter(torch.randn(self.n_rel), requires_grad=True)
-        con = math.sqrt(6.0/(self.query_dim + self.n_rel))
-        nn.init.uniform_(self.r_embed, a=-con, b=con)
-        nn.init.uniform_(self.r_bias, a=-con, b=con)
-
-        self.bilinear = nn.Parameter(torch.randn(memory_dim, self.query_dim), requires_grad=True)
-
-        self.M_embed = nn.Parameter(torch.rand(self.n_rel, memory_dim), requires_grad=True)
-
-    def forward(self, inputs):
-        # the return of cnn is stored as memories for latter query.
-        bz = len(inputs)
-        # pdb.set_trace()
-        mem_bags = self._create_sentence_embedding(inputs)
-        # first I try the queries with time.
-        # queries = self._create_queries_2(kwargs['en_pairs'])
-        if self.query_type == 'ENTITY':
-            queries = self._create_queries_2(inputs)
-        elif self.query_type == 'SELF':
-            queries = self._create_queries_4(inputs, encoding_output=mem_bags)
-        else:
-            queries = self._create_queries_3(inputs)
-
-        # queries = self._create_queries_2(inputs)
-        labels = [item['label'] for item in inputs]
-        pred = self._predict(mem_bags, queries, labels=labels)
-        return pred
-
-    # predcit function for entity-advised query
-    def _predict_with_entity(self, mem_bags, queries, labels=None):
-        ret = []
-        # trained one by one
-        # memory is bag_size * out_dim
-        for ix, memory in enumerate(mem_bags):
-            # query here is with size : 1 * query_dim
-            query_r = queries[ix]
-            query_r = torch.cat([query_r] * memory.size(0), dim=0)
-
-            # maybe should consider limit the bag size of inputs
-            # todo : need more serious thoughts
-            lookup_tensor = torch.LongTensor(
-                list(range(memory.size(0)))[-self.bag_size:] + \
-                (memory.size(0) - self.bag_size) * [0], requires_grad=True)
-            # order_embed : bag_size * order_embed_size
-            order_embed = self.order_embed(lookup_tensor)
-            order_embed *= self.order_weight
-            # query : bag_size * 1 * (order_embed_size + query_size)
-            # each indicates a query for answer of one relation
-            query = torch.cat([query_r, order_embed], dim=-1)
-            memory = torch.cat([memory, order_embed], dim=-1)
-            # query_embed = self.C[0](query)
-
-            # version is denoting key-val or layer-wise
-            # version = 2
-            for hop in range(self.max_hops):
-                #  maybe a key-val embedding, maybe layer embedding.
-                if self.version == 1:
-                    m_key = self.C[0](memory)
-                    m_val = self.C[1](memory)
-                else:
-                    m_key = self.C[hop](memory)
-                    m_val = self.C[hop](memory)
-
-                # softmax need 2D tensor
-                # each query over all memories
-                tmp = torch.matmul(query, m_key.t())
-                # adding attention-bias
-                prob = self.atten_sm(tmp)
-                # prob = prob.view(prob_size)
-                if self.debug:
-                    pdb.set_trace()
-
-                # for each query and each relation
-                o_k = torch.matmul(prob, m_val)
-
-                # update its query_r
-                query = query + o_k
-            # todo: use attention cnn ways to embed relation.
-            # can substract the query vector out to find which is our target.
-            # query -= query_r
-            if self.debug:
-                self.debug = False
-            query = self.dropout(query)
-            scores = torch.matmul(query, self.bilinear)
-
-            ret.append(self.pred_sm(scores))
-        return ret
-
-    # In this version, I use standard memN2N structure
-    def _predict(self, mem_bags, queries, labels=None):
-        ret = []
-        # trained one by one
-        # memory is bag_size * out_dim
-        for ix, memory in enumerate(mem_bags):
-            # query here is with size : n_rel * D
-            query_r = queries[ix]
-            # query_r = query_r.expand((memory.size(0),) + query_r.size())
-            query_r = torch.stack([query_r] * memory.size(0))
-            query = query_r
-
-            # maybe should consider limit the bag size of inputs
-            # todo : need more serious thoughts
-            lookup_tensor = torch.cuda.LongTensor(
-                list(range(memory.size(0)))[:self.bag_size] + \
-                (memory.size(0) - self.bag_size) * [0])
-            # lookup_tensor = torch.tensor(lookup_tensor, =True)
-
-            # order_embed : bag_size * order_embed_size
-            if self.order_embed is not None:
-                order_embed = self.order_weight * self.order_embed(lookup_tensor)
-                memory = torch.cat([memory, order_embed], dim=-1)
-                order_embed = order_embed.view(order_embed.size(0), 1, order_embed.size(-1))
-                order_embed = torch.cat([order_embed] * self.n_rel, dim=1)
-                # query : bag_size * n_rel * (order_embed_size + query_size)
-                # each indicates a query for answer of one relation
-                query = torch.cat([query_r, order_embed], dim=-1)
-
-            attention_bias = torch.triu(torch.ones(query.size(0), query.size(0)), diagonal=1) * (-1e9)
-            attention_bias = attention_bias.cuda()
-
-            # version is denoting key-val or layer-wise
-            # version = 2
-            for hop in range(self.max_hops):
-                #  maybe a key-val embedding, maybe layer embedding.
-                if self.version == 1:
-                    m_key = self.C[0](memory)
-                    m_val = self.C[1](memory)
-                else:
-                    m_key = self.C[hop](memory)
-                    m_val = self.C[hop](memory)
-
-                # softmax need 2D tensor
-                # each query over all memories
-                tmp = torch.matmul(query, m_key.t())
-                if self.tri_attention:
-                    tmp += attention_bias.unsqueeze(1) + tmp
-
-                # adding attention_bias
-
-                prob_size = tmp.size()
-                prob = self.atten_sm(tmp.view(-1, m_key.size(0)))
-                prob = prob.view(prob_size)
-
-                # for each query and each relation
-                o_k = torch.matmul(prob, m_val)
-
-                # update its query_r
-                query = query + o_k
-            # can substract the query vector out to find which is our target.
-            query = self.dropout(query)
-            if self.order_embed is not None:
-                query = torch.matmul(query, self.bilinear)
-
-            # after changing with attention pcnn
-            modified = False
-            if modified:
-                # query size is same as memory size
-                if self.training:
-                    query = query[torch.arange(0, query.size(0)).cuda().long(), labels[ix].cuda()]
-                    # score is the same, but normalize over different set!
-
-                    scores = torch.matmul(query, self.r_embed.t()) + self.r_bias
-                    scores = self.pred_sm(scores.view(memory.size(0), -1))
-                    # pdb.set_trace()
-                    # scores = self.pred_sm(scores.view(1, -1))
-                else:
-                    scores = torch.matmul(query, self.r_embed.t()) + self.r_bias
-                    scores = self.pred_sm(scores.view(-1, self.n_rel)).view(scores.size(0), self.n_rel, self.n_rel).max(1)[0].view(scores.size(0), -1)
-            else:
-                scores = (query * self.r_embed).sum(dim=-1) + self.r_bias
-                scores = self.pred_sm(scores.view(memory.size(0), -1))
-
-            ret.append(self.pred_sm(scores))
-        return ret

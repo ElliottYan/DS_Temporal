@@ -6,10 +6,29 @@ import os
 import pdb
 from sklearn.preprocessing import normalize
 
-en2id_path = '/data/yanjianhao/tmp/Freebase/knowledge graphs/entity2id.txt'
-en_vecs_path = '/data/yanjianhao/tmp/Freebase/embeddings/dimension_50/transe/entity2vec.bin'
+import pandas as pd
+import pickle
+# from pymongo import MongoClient
+from collections import defaultdict
+from structures import time_signature, Stack, Mention
+import random, math
+import pdb
+import re, string, time, os
+from functools import wraps
 
-data_path = '/data/yanjianhao/nlp/torch/torch_NRE/data'
+from itertools import product
+
+import spacy
+from spacy.symbols import ORTH, LEMMA, POS
+# nlp = spacy.load('en', disable=['ner'])
+data_root = './data/'
+# special_case = [{ORTH: u'TIME'},]
+# nlp.tokenizer.add_special_case(u'TIME', special_case)
+
+en2id_path = './Freebase/knowledge graphs/entity2id.txt'
+en_vecs_path = './Freebase/embeddings/dimension_50/transe/entity2vec.bin'
+
+data_path = './data'
 
 
 # the overall en2id
@@ -61,23 +80,7 @@ def filter_by_dataset():
 
     return entity_set, entity_id, entity2str
 
-import pandas as pd
-import pickle
-# from pymongo import MongoClient
-from collections import defaultdict
-from structures import time_signature, Stack, Mention
-import random, math
-import pdb
-import spacy, re, string, time, os
-from functools import wraps
-from spacy.symbols import ORTH, LEMMA, POS
-from itertools import product
 
-
-nlp = spacy.load('en', disable=['ner'])
-data_root = '/data/yanjianhao/nlp/NER/'
-special_case = [{ORTH: u'TIME'},]
-nlp.tokenizer.add_special_case(u'TIME', special_case)
 
 
 # in py3 version
@@ -149,10 +152,10 @@ def create_labels():
     with open(data_root + "alignment.dat", 'rb') as f:
         # align is the map from wiki-data to wiki-pedia
         align = pickle.load(f)
-    with open("origin_data/r_synonym.dat", 'rb') as f:
+    with open(data_root + "r_synonym.dat", 'rb') as f:
         r_synonym = pickle.load(f)
 
-    entities_pair = pd.read_csv(data_root + "origin_data/entities.csv")
+    entities_pair = pd.read_csv(data_root + "entities.csv")
 
     formal_entities_pair = pd.concat([entities_pair[['entity1','entity2', 'entity1Label', 'entity2Label', 'relation_name']],
                                       entities_pair['start_time'].apply(clean) ,entities_pair['end_time'].apply(clean)], axis=1)
@@ -232,7 +235,7 @@ def unit_test(labels):
 def construct_dataset(file_path, labels, w_to_ix, train_test='train', en2id=None):
     # import reverse synonym
     # here we got doing the mapping in dataset construction phase
-    with open('origin_data/r_synonym.dat', 'rb') as f:
+    with open('./origin_data/r_synonym.dat', 'rb') as f:
         r_synonym = pickle.load(f)
     print('Reading reverse synonym done!')
 
@@ -255,7 +258,6 @@ def construct_dataset(file_path, labels, w_to_ix, train_test='train', en2id=None
     mentions = defaultdict(list)
     natural = defaultdict(list)
 
-    # with open(data_root + '/origin_data/mentions2/2018_01_24/mentions.csv', 'r') as f:
     with open(file_path, 'r') as f:
         lines = f.readlines()
 
@@ -359,11 +361,11 @@ def construct_dataset(file_path, labels, w_to_ix, train_test='train', en2id=None
             output_lines.append('\n')
         print(count)
 
-        with open('/data/yanjianhao/nlp/torch/torch_NRE/origin_data/en+label+sent.txt', 'w') as f:
+        with open('./origin_data/en+label+sent.txt', 'w') as f:
             f.writelines(output_lines)
         print('Writing to outputs!')
 
-    with open("/data/yanjianhao/nlp/torch/torch_NRE/origin_data/mentions_" + train_test + ".dat", 'wb') as fout:
+    with open("./origin_data/mentions_" + train_test + ".dat", 'wb') as fout:
         pickle.dump(mentions, fout)
 
     print('Finish save intermediate results! ')
@@ -382,6 +384,9 @@ def Normalization(s):
 
 def tokenization(sent):
     # CAPITAL WORD TIME does not appear in text
+    nlp = spacy.load('en', disable=['ner'])
+    special_case = [{ORTH: u'TIME'},]
+    nlp.tokenizer.add_special_case(u'TIME', special_case)
     sent = re.sub(r'<t>', r'TIME', sent.lower())
     regex = re.compile('[%s]' % re.escape(string.punctuation))
     sent = regex.sub(" ", sent)
@@ -400,7 +405,7 @@ def separate_datasets():
     with open(data_root + '/origin_data/mentions4/2018_04_27/mentions.csv', 'r') as f:
         lines = f.readlines()
 
-    with open('origin_data/r_synonym.dat', 'rb') as f:
+    with open('./origin_data/r_synonym.dat', 'rb') as f:
         r_synonym = pickle.load(f)
     mentions_count = defaultdict(int)
     mentions = defaultdict(list)
@@ -448,9 +453,9 @@ def separate_datasets():
         train_sents += mentions[i]
     for i in test:
         test_sents += mentions[i]
-    with open("/data/yanjianhao/nlp/torch/torch_NRE/data/train_temporal_v2.txt", 'w') as fout:
+    with open("./data/train_temporal_v2.txt", 'w') as fout:
         fout.writelines(train_sents)
-    with open("/data/yanjianhao/nlp/torch/torch_NRE/data/test_temporal_v2.txt", 'w') as fout:
+    with open("./data/test_temporal_v2.txt", 'w') as fout:
         fout.writelines(test_sents)
 
 
@@ -474,7 +479,6 @@ def test_dataset(file_path):
 
     mentions = defaultdict(list)
 
-    # with open(data_root + '/origin_data/mentions2/2018_01_24/mentions.csv', 'r') as f:
     with open(file_path, 'r') as f:
         lines = f.readlines()
 
@@ -512,9 +516,7 @@ def test_dataset(file_path):
     return
 
 def create_mini_dataset(in_file_path, out_file_path):
-    # train_file_path = "/data/yanjianhao/nlp/torch/torch_NRE/data/train_temporal_v2.txt"
-    # test_file_path = "/data/yanjianhao/nlp/torch/torch_NRE/data/test_temporal_v2.txt"
-    entities_pair = pd.read_csv('/data/yanjianhao/nlp/NER/origin_data/entities.csv')
+    entities_pair = pd.read_csv('./origin_data/entities.csv')
     pairs = set()
     for ix, row in entities_pair.iterrows():
         en1 = Normalization(row['entity1Label'])
@@ -557,8 +559,8 @@ def main():
     print('No pretrained embeddings: {} items'.format(count))
 
     # saving module
-    np.save('/data/yanjianhao/nlp/torch/torch_NRE/data/en_vecs/nyt_en_vecs.npy', new_vecs)
-    with open('/data/yanjianhao/nlp/torch/torch_NRE/data/en_vecs/en2id.txt', 'w') as f:
+    np.save('./data/en_vecs/nyt_en_vecs.npy', new_vecs)
+    with open('./data/en_vecs/en2id.txt', 'w') as f:
         for key, val in entity_id.items():
             f.write('{}\t{}\t{}\n'.format(key, entity2str[key], str(val)))
 
