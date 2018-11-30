@@ -5,13 +5,13 @@ cd ..
 BATCH_SIZE=50
 MODEL=MIML_CONV_ATT
 MAX_HOPS=1
-DEVICE=2
+DEVICE=1
 VERSION=1
 N_EPOCHS=15
 QUERY_TYPE=RELATION
 DECAY_RATIO=0.95
 #lr=0.007
-lr=0.1
+lr=0.01
 
 CUDA_VISIBLE_DEVICES=$DEVICE python trainer.py --model=$MODEL \
                                                 --cuda \

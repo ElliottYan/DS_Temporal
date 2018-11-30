@@ -48,7 +48,7 @@ class MIML_CONV_ATT(nn.Module):
         self.att_W = nn.Parameter(eye.repeat([self.n_rel, 1, 1]))
         # pcnn
         # self.linear = nn.Linear(settings['out_c'] * 3, settings['n_rel'])
-        self.linear = nn.Linear(settings['n_rel'], settings['n_rel'])
+        self.linear = nn.Linear(self.out_c, 1)
         self.dropout = nn.Dropout(p=settings['dropout_p'])
 
         con = math.sqrt(6.0/(self.out_c + self.n_rel))
@@ -57,6 +57,8 @@ class MIML_CONV_ATT(nn.Module):
 
 
     def forward(self, inputs):
+        labels = [item['label'] for item in inputs]
+
         bz = len(inputs)
         conv_out = self.conv(inputs)
 
@@ -70,11 +72,11 @@ class MIML_CONV_ATT(nn.Module):
         # bz * n_rel * out_c
         att_feature = torch.stack(att_outs)
         # modified the computing of scores
-        # scores = torch.matmul(att_feature, self.r_embed.t()).squeeze() + self.r_bias
-        scores = (att_feature * (self.r_embed.unsqueeze(0).repeat([bz, 1, 1]))).sum(dim=-1) + self.r_bias
+        # pdb.set_trace()
         # n_rel * D
-        out_feature = self.dropout(scores)
-        # out_feature = self.linear(out_feature)
+        out_feature = self.dropout(att_feature)
+        out_feature = self.linear(out_feature)
+        out_feature = out_feature.squeeze()
         return out_feature
 
 
