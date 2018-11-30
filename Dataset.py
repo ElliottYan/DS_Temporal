@@ -18,16 +18,15 @@ import struct
 
 
 class Riedel_10(data.Dataset):
-    def __init__(self, root, train_test='train'):
+    def __init__(self, root, train_test='train', debug=False):
         # filenames = ['train.txt', 'test.txt']
         self.root = root
         self.mode = train_test
-        if self.mode == 'train':
-            self.filename = 'train.txt'
-            # self.filename = 'train.head'
-        else:
-            self.filename = 'test.txt'
-            # self.filename = 'test.head'
+        end_modifier = '.txt'
+        if debug:
+            print('In debug mode !')
+            end_modifier = '.head'
+        self.filename = train_test + end_modifier
 
         self.vec_name = 'vec.bin'
         self.rel_name = 'relation2id.txt'
@@ -187,7 +186,7 @@ class Riedel_10(data.Dataset):
 
 
 class WIKI_TIME(data.Dataset):
-    def __init__(self, root, train_test='train', transform=None, position_embed=True):
+    def __init__(self, root, train_test='train', transform=None, position_embed=True, debug=False):
         if train_test == 'train':
             file_name = 'mini_train_temporal_v2.txt'
         else:

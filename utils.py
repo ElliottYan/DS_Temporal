@@ -46,7 +46,7 @@ def precision_recall_compute_multi(labels, y_pred):
         #     print(precision, recall)
         precision_hat.append(precision)
         recall_hat.append(recall)
-        if i % 100 == 0:
+        if i % 200 == 0:
             print('Precision: {}'.format(precision))
             print('Recall: {}'.format(recall))
     print('Correct: {}'.format(correct))

@@ -6,6 +6,8 @@ from mem_cnn import AttrProxy
 from Dataset import Riedel_10, WIKI_TIME
 import pdb
 import math
+from cnn import CNN
+from pcnn import PCNN
 
 class Word_MEM(nn.Module):
     def __init__(self, word_embed_size, settings):
@@ -15,10 +17,12 @@ class Word_MEM(nn.Module):
 
         for i in range(self.max_hops):
             # also add bias ?
+            '''
             if i == 0:
                 C = nn.Linear(2 * self.word_embed_size , self.word_embed_size, bias=False)
             else:
-                C = nn.Linear(self.word_embed_size, self.word_embed_size, bias=False)
+            '''
+            C = nn.Linear(self.word_embed_size, self.word_embed_size, bias=False)
             C.weight.data.uniform_(-0.01, 0.01)
             self.add_module('C_{}'.format(i), C)
         self.C = AttrProxy(self, 'C_')
@@ -26,6 +30,9 @@ class Word_MEM(nn.Module):
         # self.step_through = nn.Linear(2 * self.word_embed_size, 2 * self.word_embed_size)
         self.scoring_1 = nn.Linear(3 * self.word_embed_size, 1)
         self.scoring_2 = nn.Linear(2 * self.word_embed_size, 1)
+        nn.init.uniform_(self.scoring_2.weight, a=-0.01, b=0.01)
+        nn.init.uniform_(self.scoring_2.bias, a=-0.01, b=0.01)
+
         self.tanh = nn.Tanh()
         self.softmax = nn.Softmax()
 
@@ -39,7 +46,7 @@ class Word_MEM(nn.Module):
         for hop in range(self.max_hops):
             if not hop:
                 # sum two queries
-                query = query.contiguous().view(2, -1).sum(axis=0).view(1, -1)
+                query = query.contiguous().view(2, -1).sum(0, True)
             _query = torch.cat([query] * memory.shape[0], dim=0)  # L_memory * 2d or L_memory * d
             # if not hop:
             #     g = self.tanh(self.scoring_1(torch.cat([memory, _query], dim=-1)))  # L_memory * 1
@@ -47,10 +54,10 @@ class Word_MEM(nn.Module):
             g = self.tanh(self.scoring_2(torch.cat([memory, _query], dim=-1)))  # L_memory * 1
             weights = self.softmax(g.reshape(1, -1))  # 1 * L_memory
             x = torch.matmul(weights, memory)  # 1 * d
-            if not hop:
-                query = self.C[hop](query) + x
-            else:
-                query = self.C[1](query) + x
+            # if not hop:
+            #     query = self.C[0](query) + x
+            # else:
+            query = self.C[0](query) + x
 
         '''
         # maybe the two entity vectors are used as query independently.
@@ -163,8 +170,8 @@ class Word_Rel_MEM(nn.Module):
         self.pred_neg = nn.Parameter(torch.randn(self.n_rel, self.out_feature_size), requires_grad=True)
         self.pred_pos.data.uniform_(-0.01, 0.01)
         self.pred_neg.data.uniform_(-0.01, 0.01)
-        self.pred_sm = nn.LogSigmoid()
-        self.pred_linear = nn.Linear(self.out_feature_size, self.n_rel)
+        self.pred_sm = nn.Sigmoid()
+        self.pred_linear = nn.Linear(self.out_feature_size, 1)
         # self.pred_sm = nn.LogSoftmax()
 
         # con1 = math.sqrt(6.0 / ((self.pos_embed_size + self.word_embed_size)*self.window))
@@ -208,8 +215,9 @@ class Word_Rel_MEM(nn.Module):
         # same as in ﻿Jiang-16
         pred = self.dropout(self.pred_linear(s))
         # a dropout trick in Jiang-16 seems to have no effect.
-        pred = self.pred_sm(pred)
-        return pred
+        # pred = self.pred_sm(pred)
+        # return probabilities
+        return pred.view(-1, self.n_rel)
 
     def _create_sentence_embedding(self, inputs):
         batch_features = []
@@ -266,6 +274,8 @@ class Word_Rel_MEM(nn.Module):
             '''
             batch_features.append(features.unsqueeze(0))
         return torch.cat(batch_features, dim=0)
+
+
 
 
 def split_query_and_memory(w2v, sent):

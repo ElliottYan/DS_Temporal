@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+cd ..
 BATCH_SIZE=32
 MODEL=MEM_CNN_WIKI
 MAX_HOPS=5

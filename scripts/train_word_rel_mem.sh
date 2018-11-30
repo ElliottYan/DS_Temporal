@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
 
+cd ..
+
 BATCH_SIZE=50
 MODEL=WORD_REL_MEM
-MAX_HOPS=2
+MAX_HOPS=1
 DEVICE=1
 VERSION=1
-N_EPOCHS=25
+N_EPOCHS=15
 QUERY_TYPE=RELATION
-DECAY_RATIO=0.5
-#lr=0.002
-#lr=0.00125
+DECAY_RATIO=0.95
 lr=0.01
-#lr=0.001
-#lr=0.00075
-#lr=5e-4
-#lr=2.5e-4
+word_mem_hops=1
+rel_mem_hops=1
 
 CUDA_VISIBLE_DEVICES=$DEVICE python trainer.py --model=$MODEL \
                                                 --cuda \
@@ -26,6 +24,7 @@ CUDA_VISIBLE_DEVICES=$DEVICE python trainer.py --model=$MODEL \
                                                 --remove_origin_query \
                                                 --query_type=$QUERY_TYPE \
                                                 --lr=$lr \
-                                                --optimizer=adadelta
-#                                                --use_noise_and_clip \
-#                                                --debug
+                                                --optimizer=adam \
+                                                --word_mem_hops=$word_mem_hops \
+                                                --rel_mem_hops=$rel_mem_hops \
+                                                --debug

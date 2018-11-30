@@ -8,6 +8,7 @@ from mem_pcnn import MEM_PCNN_RIEDEL
 from cnn_ave import CNN_AVE
 from tm_att import TM_ATT
 from word_rel_mem import Word_Rel_MEM
+from miml_conv import MIML_CONV, MIML_CONV_ATT
 
 import torch
 import torch.optim as optim
@@ -20,6 +21,7 @@ import os
 import pdb
 import numpy as np
 import time
+from tqdm import tqdm
 from utils import precision_recall_compute_multi, one_hot, multi_hot_label
 
 
@@ -29,14 +31,14 @@ class Trainer():
         self.problem = config.problem
         if self.problem == 'NYT-10':
             print('Reading Training data!')
-            self.train_data = Riedel_10(root)
+            self.train_data = Riedel_10(root, debug=config.debug)
             print('Reading Testing data!')
-            self.test_data = Riedel_10(root, train_test='test')
+            self.test_data = Riedel_10(root, train_test='test', debug=config.debug)
         else:
             print('Reading Training data!')
-            self.train_data = WIKI_TIME(root)
+            self.train_data = WIKI_TIME(root, debug=config.debug)
             print('Reading Testing data!')
-            self.test_data = WIKI_TIME(root, train_test='test')
+            self.test_data = WIKI_TIME(root, train_test='test', debug=config.debug)
 
         self.noise_and_clip = config.use_noise_and_clip
 
@@ -110,7 +112,10 @@ class Trainer():
                   'PCNN_ATT':PCNN_ATT,
                   'CNN_AVE':CNN_AVE,
                   'TM_ATT':TM_ATT,
-                  'WORD_REL_MEM':Word_Rel_MEM}
+                  'WORD_REL_MEM':Word_Rel_MEM,
+                  'MIML_CONV': MIML_CONV,
+                  'MIML_CONV_ATT': MIML_CONV_ATT,
+                  }
         model = models[config.model]
         self.model = model(settings)
         # self.model_str = 'MEM_CNN_RIEDEL'
@@ -130,7 +135,8 @@ class Trainer():
         if torch.cuda.is_available():
             self.model = self.model.cuda()
         self.loss_func = nn.NLLLoss(size_average=False)
-        if self.model_str == 'Word_Rel_MEM':
+        self.binary_loss_models = {'Word_Rel_MEM', 'MIML_CONV', 'MIML_CONV_ATT'}
+        if self.model_str in self.binary_loss_models:
             self.loss_func = self.binary_loss
 
         self.model_parameters = [item for item in self.model.parameters() if item.requires_grad]
@@ -166,7 +172,7 @@ class Trainer():
             alpha = decay
             beta = 0.1 * decay
             loss = alpha * self.loss_func(out[0], labels) + (1-alpha) * self.loss_func(out[1], labels) + beta * out[2]
-        elif self.model_str == 'Word_Rel_MEM':
+        elif self.model_str in self.binary_loss_models:
             loss = self.loss_func(out, labels)
         # out is a tensor, label is a tensor
         else:
@@ -181,7 +187,9 @@ class Trainer():
             print('TimeStamp: {}'.format(self.timestamp))
             print('Epoch {}:'.format(i))
             acc_loss = 0
-            for batch_ix, item in enumerate(self.train_loader):
+            batch_ix = 0
+            pbar = tqdm(self.train_loader)
+            for item in pbar:
                 # somehow... input is wrapped with a list
                 out = self.model(item)
                 self.opt.zero_grad()
@@ -205,14 +213,18 @@ class Trainer():
                 self.opt.step()
                 acc_loss += loss.data.item()
 
-                if (batch_ix + 1) % 50 == 0:
-                    print('Batch {}:'.format(batch_ix))
-                    print('Loss {}'.format(str(acc_loss / 50)))
-                    acc_loss = 0
+                # if (batch_ix + 1) % 50 == 0:
+                #     print('Batch {}:'.format(batch_ix))
+                #     print('Loss {}'.format(str(acc_loss / 50)))
+                #     acc_loss = 0
+                pbar.set_description("Loss: {}".format(loss))
+                batch_ix += 1
 
             if self.problem == 'WIKI-TIME' and self.model_str == 'MEM_CNN_WIKI':
                 self.evaluate_bag(epoch=i)
                 self.evaluate_all(epoch=i)
+            elif self.model_str in self.binary_loss_models:
+                self.evaluate_binary(epoch=i)
             else:
                 self.evaluate(epoch=i)
         model_path = os.path.join(model_root, '{}_{}_epoch_{}'.format(self.timestamp, self.model_str, str(self.max_epochs)))
@@ -225,8 +237,9 @@ class Trainer():
         y_true = []
         self.model.eval()
         for batch_ix, item in enumerate(self.test_loader):
-            labels = [item['label'] for item in item]
+            labels = [each_item['label'] for each_item in item]
             out = self.model(item)
+
             labels = self._one_hot(labels, self.train_data.n_rel)
             try:
                 assert labels.cpu().numpy().shape == out.cpu().detach().numpy().shape
@@ -244,6 +257,48 @@ class Trainer():
         self.model.train()
 
         return
+
+    def evaluate_binary(self, epoch=None):
+        assert self.model_str in self.binary_loss_models
+        self.model.eval()
+        correct_num = 0
+        correct_num_with_rel = 0
+        tot = 0
+        tot_with_rel = 0
+        # pdb.set_trace()
+        preds = []
+        y_true = []
+        for batch_ix, item in enumerate(self.test_loader):
+            labels = [each_item['label'] for each_item in item]
+            out = self.model(item)
+            labels = multi_hot_label(labels, self.train_data.n_rel)
+            preds.append(out.cpu().detach().numpy())
+            y_true.append(labels.cpu().numpy())
+            # remove NA
+            labels = labels[:, 1:]
+            out = out[:, 1:].view(-1, self.train_data.n_rel-1)
+            # cast predictions
+            pred = (out > 0.5).float()
+            out_shape = out.shape
+            correct_num += torch.sum((labels == pred))
+            correct_num_with_rel += torch.sum(labels * pred)
+            tot += out_shape[0] * out_shape[1]
+            tot_with_rel += torch.sum(labels)
+
+        correct_num_without_rel = int(correct_num) - int(correct_num_with_rel)
+        tot_without_rel = int(tot) - int(tot_with_rel)
+        print('Total_with_rel:{}'.format(tot_with_rel))
+        print('Total_without_rel:{}'.format(tot_without_rel))
+        print('Correct_with_rel:{}'.format(correct_num_with_rel))
+        print('Correct_without_rel:{}'.format(correct_num_without_rel))
+        print("Precision_ALL : {}".format(float(correct_num)/tot))
+        print("Precision_REL : {}".format(float(correct_num_with_rel) / tot_with_rel))
+        preds = np.concatenate(preds, axis=0)
+        y_true = np.concatenate(y_true, axis=0)
+        precision, recall = precision_recall_compute_multi(y_true, preds)
+        # no saving now.
+        self.model.train()
+
 
     def evaluate_bag(self, epoch=None):
         saving_path = './results/' + self.model_str
@@ -353,16 +408,26 @@ class Trainer():
 
         return lr
 
-    def binary_loss(self, preds, targets):
+    def binary_loss(self, preds, targets, size_average=False):
         '''
             loss function defined in Feng-17's paper.
         '''
         targets = multi_hot_label(targets, self.train_data.n_rel)
+        # remove NA
+        '''
         preds = preds[:, 1:]
         targets = targets[:, 1:]
-        preds = preds.reshape(-1, 2)
-        loss = preds[torch.arange(preds.shape[0]), targets.reshape(-1).long()].sum()
+        # clamps within the min and max
+        # follow the paper exactly
+        preds = preds.view(-1, self.train_data.n_rel-1).clamp(1e-5, 1e5)
+        preds = torch.abs(1 - targets - preds)
+        log_preds = torch.log(preds)
+        loss = torch.sum(log_preds)
         loss = -1 * loss
+        '''
+        # v2 --> BCE loss
+        loss = F.binary_cross_entropy_with_logits(preds, targets, size_average=False)
+
         return loss
 
 class FocalLoss(nn.Module):
