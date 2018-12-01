@@ -259,6 +259,13 @@ class Trainer():
         return
 
     def evaluate_binary(self, epoch=None):
+        '''
+        In models with binary loss, they use sigmoid as the probability computing layer.
+        So logits is enough to rank them.
+
+        :param epoch: for which epoch, used for saving models.
+        :return:
+        '''
         assert self.model_str in self.binary_loss_models
         self.model.eval()
         correct_num = 0
@@ -280,6 +287,8 @@ class Trainer():
             # cast predictions
             pred = (out > 0.5).float()
             out_shape = out.shape
+            if labels.shape != pred.shape:
+                pdb.set_trace()
             correct_num += torch.sum((labels == pred))
             correct_num_with_rel += torch.sum(labels * pred)
             tot += out_shape[0] * out_shape[1]

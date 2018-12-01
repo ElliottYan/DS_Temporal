@@ -119,7 +119,8 @@ class Riedel_10(data.Dataset):
                 conr = min(self.limit * 2, conr)
                 con.append([sent[j], conl, conr, pos1, pos2])
 
-            use_whole_bag = True
+            # use_whole_bag = True
+            use_whole_bag = False
             if self.mode == 'train' and not use_whole_bag:
                 key = (e1, e2, rel)
             else:
