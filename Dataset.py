@@ -18,10 +18,11 @@ import struct
 
 
 class Riedel_10(data.Dataset):
-    def __init__(self, root, train_test='train', debug=False):
+    def __init__(self, root, train_test='train', debug=False, use_whole_bag=True):
         # filenames = ['train.txt', 'test.txt']
         self.root = root
         self.mode = train_test
+        self.use_whole_bag = use_whole_bag
         end_modifier = '.txt'
         if debug:
             print('In debug mode !')
@@ -120,7 +121,7 @@ class Riedel_10(data.Dataset):
                 con.append([sent[j], conl, conr, pos1, pos2])
 
             # use_whole_bag = True
-            use_whole_bag = False
+            use_whole_bag = self.use_whole_bag
             if self.mode == 'train' and not use_whole_bag:
                 key = (e1, e2, rel)
             else:

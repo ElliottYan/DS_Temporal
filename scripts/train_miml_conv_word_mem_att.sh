@@ -2,10 +2,10 @@
 
 cd ..
 
-BATCH_SIZE=40
-MODEL=MIML_CONV_ATT
-MAX_HOPS=1
-DEVICE=0
+BATCH_SIZE=50
+MODEL=MIML_CONV_WORD_MEM_ATT
+MAX_HOPS=2
+DEVICE=2
 VERSION=1
 N_EPOCHS=10
 QUERY_TYPE=RELATION
@@ -27,6 +27,5 @@ CUDA_VISIBLE_DEVICES=$DEVICE python trainer.py --model=$MODEL \
                                                 --decay_interval=1 \
                                                 --decay_ratio=$DECAY_RATIO \
                                                 --optimizer=adam \
-                                                --conv_type=$CONV_TYPE \
-                                                --use_whole_bag \
-                                                --debug
+                                                --conv_type=$CONV_TYPE
+#                                                --debug

@@ -8,7 +8,7 @@ from mem_pcnn import MEM_PCNN_RIEDEL
 from cnn_ave import CNN_AVE
 from tm_att import TM_ATT
 from word_rel_mem import Word_Rel_MEM
-from miml_conv import MIML_CONV, MIML_CONV_ATT
+from miml_conv import MIML_CONV, MIML_CONV_ATT, MIML_CONV_WORD_MEM_ATT
 
 import torch
 import torch.optim as optim
@@ -31,14 +31,22 @@ class Trainer():
         self.problem = config.problem
         if self.problem == 'NYT-10':
             print('Reading Training data!')
-            self.train_data = Riedel_10(root, debug=config.debug)
+            self.train_data = Riedel_10(root,
+                                        debug=config.debug,
+                                        use_whole_bag=config.use_whole_bag)
             print('Reading Testing data!')
-            self.test_data = Riedel_10(root, train_test='test', debug=config.debug)
+            self.test_data = Riedel_10(root, train_test='test',
+                                       debug=config.debug,
+                                       use_whole_bag=config.use_whole_bag)
         else:
             print('Reading Training data!')
-            self.train_data = WIKI_TIME(root, debug=config.debug)
+            self.train_data = WIKI_TIME(root,
+                                        debug=config.debug)
+                                        # use_whole_bag=config.use_whole_bag)
             print('Reading Testing data!')
-            self.test_data = WIKI_TIME(root, train_test='test', debug=config.debug)
+            self.test_data = WIKI_TIME(root, train_test='test',
+                                       debug=config.debug)
+                                       # use_whole_bag=config.use_whole_bag)
 
         self.noise_and_clip = config.use_noise_and_clip
 
@@ -95,7 +103,7 @@ class Trainer():
             'query_type' : config.query_type,
             'order_weight': config.order_weight,
             'tri_attention' : config.tri_attention,
-
+            'conv_type' : config.conv_type,
         }
 
         self.config = config
@@ -115,6 +123,7 @@ class Trainer():
                   'WORD_REL_MEM':Word_Rel_MEM,
                   'MIML_CONV': MIML_CONV,
                   'MIML_CONV_ATT': MIML_CONV_ATT,
+                  'MIML_CONV_WORD_MEM_ATT': MIML_CONV_WORD_MEM_ATT,
                   }
         model = models[config.model]
         self.model = model(settings)
@@ -135,7 +144,8 @@ class Trainer():
         if torch.cuda.is_available():
             self.model = self.model.cuda()
         self.loss_func = nn.NLLLoss(size_average=False)
-        self.binary_loss_models = {'Word_Rel_MEM', 'MIML_CONV', 'MIML_CONV_ATT'}
+        # get a easier way to do this.
+        self.binary_loss_models = {'Word_Rel_MEM', 'MIML_CONV', 'MIML_CONV_ATT', 'MIML_CONV_WORD_MEM_ATT'}
         if self.model_str in self.binary_loss_models:
             self.loss_func = self.binary_loss
 
@@ -267,6 +277,7 @@ class Trainer():
         :return:
         '''
         assert self.model_str in self.binary_loss_models
+        saving_path = './results/' + self.model_str
         self.model.eval()
         correct_num = 0
         correct_num_with_rel = 0
@@ -289,10 +300,10 @@ class Trainer():
             out_shape = out.shape
             if labels.shape != pred.shape:
                 pdb.set_trace()
-            correct_num += torch.sum((labels == pred))
-            correct_num_with_rel += torch.sum(labels * pred)
-            tot += out_shape[0] * out_shape[1]
-            tot_with_rel += torch.sum(labels)
+            correct_num += int(torch.sum((labels == pred)))
+            correct_num_with_rel += int(torch.sum(labels * pred))
+            tot += int(out_shape[0] * out_shape[1])
+            tot_with_rel += int(torch.sum(labels))
 
         correct_num_without_rel = int(correct_num) - int(correct_num_with_rel)
         tot_without_rel = int(tot) - int(tot_with_rel)
@@ -305,6 +316,10 @@ class Trainer():
         preds = np.concatenate(preds, axis=0)
         y_true = np.concatenate(y_true, axis=0)
         precision, recall = precision_recall_compute_multi(y_true, preds)
+        if not os.path.exists(saving_path):
+            os.mkdir(saving_path)
+        np.save(os.path.join(saving_path, '{}_Epoch_{}_all_precision.npy'.format(self.timestamp, epoch)), precision)
+        np.save(os.path.join(saving_path, '{}_Epoch_{}_all_recall.npy'.format(self.timestamp, epoch)), recall)
         # no saving now.
         self.model.train()
 
@@ -360,6 +375,8 @@ class Trainer():
         preds = np.concatenate(preds, axis=0)
         y_true = np.concatenate(y_true, axis=0)
         precision, recall = precision_recall_compute_multi(y_true, preds)
+        if not os.path.exists(saving_path):
+            os.mkdir(saving_path)
         np.save(os.path.join(saving_path, '{}_Epoch_{}_all_precision.npy'.format(self.timestamp, epoch)), precision)
         np.save(os.path.join(saving_path, '{}_Epoch_{}_all_recall.npy'.format(self.timestamp, epoch)), recall)
         # self.train()
@@ -494,8 +511,11 @@ def parse_config():
     parser.add_argument('--debug', action='store_true')
     parser.add_argument("--problem", type=str, default='NYT-10')
     parser.add_argument('--use_noise_and_clip', action='store_true')
+    parser.add_argument('--use_whole_bag', action='store_true')
     parser.add_argument('--tri_attention', action='store_true')
     parser.add_argument("--optimizer", type=str, default='sgd')
+    parser.add_argument("--conv_type", type=str, default='CNN')
+
 
     return parser.parse_args()
 
