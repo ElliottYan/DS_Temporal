@@ -84,26 +84,30 @@ class PCNN(nn.Module):
                 pos1 = self.pos1_embed(item[:, 1])
                 pos2 = self.pos2_embed(item[:, 2])
                 feature = torch.cat([w2v, pos1, pos2], dim=-1).unsqueeze(0).unsqueeze(0)
-                feature = self.conv(feature).squeeze(-1)
-                pos1_mask = item[:, 1] >= self.limit
-                pos2_mask = item[:, 2] >= self.limit
-                left = pos1_mask * pos2_mask
-                right = (1-pos1_mask) * (1-pos2_mask)
-                # mid = torch.abs(pos1_mask - pos2_mask)
-                mid = 1 - right - left
-                left_feature = F.max_pool1d(feature * left.float(), feature.size(-1)).squeeze(-1) + self.conv_bias_0
-                mid_feature = F.max_pool1d(feature * mid.float(), feature.size(-1)).squeeze(-1) + self.conv_bias_1
-                right_feature = F.max_pool1d(feature * right.float(), feature.size(-1)).squeeze(-1) + self.conv_bias_2
-                feature = torch.cat([left_feature, mid_feature, right_feature]).reshape(1, self.feature_size)
-                # this tanh is little different from lin-16's.
-                feature = self.tanh(feature)
-                feature = self.dropout(feature)
-                # dropout is a little different too.
+                feature = self._enc_each_iter(feature, item)
                 features.append(feature)
             features = torch.cat(features, dim=0)
             batch_features.append(features)
         return batch_features
 
+    def _enc_each_iter(self, feature, item):
+        feature = self.conv(feature).squeeze(-1)
+        pos1_mask = item[:, 1] >= self.limit
+        pos2_mask = item[:, 2] >= self.limit
+        left = pos1_mask * pos2_mask
+        right = (1 - pos1_mask) * (1 - pos2_mask)
+        # mid = torch.abs(pos1_mask - pos2_mask)
+        mid = 1 - right - left
+        left_feature = F.max_pool1d(feature * left.float(), feature.size(-1)).squeeze(-1) + self.conv_bias_0
+        mid_feature = F.max_pool1d(feature * mid.float(), feature.size(-1)).squeeze(-1) + self.conv_bias_1
+        right_feature = F.max_pool1d(feature * right.float(), feature.size(-1)).squeeze(-1) + self.conv_bias_2
+        feature = torch.cat([left_feature, mid_feature, right_feature]).reshape(1, self.feature_size)
+        # this tanh is little different from lin-16's.
+        feature = self.tanh(feature)
+        # disable dropout in pcnn
+        # feature = self.dropout(feature)
+        # dropout is a little different too.
+        return feature
 
 
 

@@ -221,7 +221,7 @@ class Trainer():
                                                   noise_stddev=noise_stddev, max_clip=config.max_clip)
                 self._decay_learning_rate(self.opt, epoch=i)
                 self.opt.step()
-                acc_loss += loss.data.item()
+                # acc_loss += loss.data.item()
 
                 # if (batch_ix + 1) % 50 == 0:
                 #     print('Batch {}:'.format(batch_ix))

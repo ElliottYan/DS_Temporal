@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from cnn import CNN
 from cnn_word_mem import CNN_WORD_MEM
 from pcnn import PCNN
+from pcnn_word_mem import PCNN_WORD_MEM
 
 class MIML_CONV(nn.Module):
     def __init__(self, settings):
@@ -35,7 +36,6 @@ class MIML_CONV(nn.Module):
             # need to compute probability for testing.
             out_feature = F.sigmoid(out_feature)
         return out_feature
-
 
 
 class MIML_CONV_ATT(nn.Module):
@@ -86,19 +86,7 @@ class MIML_CONV_ATT(nn.Module):
         return out_feature
 
     def train_fusion(self, conv_out, labels):
-        att_outs = []
-        for ix, each_conv_out in enumerate(conv_out):
-            r_embed = self.r_embed[labels[ix]].sum(-2, keepdim=True)
-            # r_embed = self.r_embed[labels[ix]]
-            atten_weights = self.att_sm(torch.matmul(r_embed, torch.matmul(self.att_W_small, each_conv_out.t())))
-
-            # atten_weights = self.att_sm(torch.bmm(self.r_embed.unsqueeze(1),
-            #                                        torch.matmul(self.att_W, each_conv_out.t())).squeeze(1))
-            # n_rel * out_feature_size
-            att_feature = torch.matmul(atten_weights, each_conv_out)
-            att_outs.append(att_feature)
-        # bz * out_feature_size
-        att_feature = torch.cat(att_outs, dim=0)
+        att_feature = self._merge_label_rel_rep(conv_out, labels)
         # modified the computing of scores
         # n_rel * D
         out_feature = self.dropout(att_feature)
@@ -108,6 +96,32 @@ class MIML_CONV_ATT(nn.Module):
         return out_feature
 
     def test_fusion(self, conv_out):
+        att_feature = self._merge_each_rel_rep(conv_out)
+        # modified the computing of scores
+        out_feature = torch.matmul(att_feature, self.r_embed.t()).squeeze() + self.r_bias
+        out_feature = out_feature.max(1)[0]
+        # needed for testing...
+        # out_feature = F.softmax(out_feature, -1)
+        out_feature = F.sigmoid(out_feature)
+        return out_feature
+
+    def _merge_label_rel_rep(self, conv_out, labels):
+        att_outs = []
+        for ix, each_conv_out in enumerate(conv_out):
+            r_embed = self.r_embed[labels[ix]].sum(-2, keepdim=True)
+            # r_embed = self.r_embed[labels[ix]]
+            tmp = torch.matmul(self.att_W_small, each_conv_out.t())
+            tmp = torch.matmul(r_embed, tmp)
+            atten_weights = self.att_sm(tmp)
+
+            # n_rel * out_feature_size
+            att_feature = torch.matmul(atten_weights, each_conv_out)
+            att_outs.append(att_feature)
+        # bz * out_feature_size
+        att_feature = torch.cat(att_outs, dim=0)
+        return att_feature
+
+    def _merge_each_rel_rep(self, conv_out):
         att_outs = []
         for ix, each_conv_out in enumerate(conv_out):
             # n_rel * out_feature_size * out_c
@@ -121,18 +135,18 @@ class MIML_CONV_ATT(nn.Module):
 
         # bz * n_rel * out_feature_size
         att_feature = torch.stack(att_outs)
-        # modified the computing of scores
-        out_feature = torch.matmul(att_feature, self.r_embed.t()).squeeze() + self.r_bias
-        out_feature = out_feature.max(1)[0]
-        # needed for testing...
-        # out_feature = F.softmax(out_feature, -1)
-        out_feature = F.sigmoid(out_feature)
-        return out_feature
+        return att_feature
+
 
 class MIML_CONV_WORD_MEM_ATT(MIML_CONV_ATT):
     def __init__(self, settings):
         super(MIML_CONV_WORD_MEM_ATT, self).__init__(settings)
-        self.enc = CNN_WORD_MEM(settings)
+        if self.enc_type == 'CNN':
+            # for CNN
+            self.enc = CNN_WORD_MEM(settings)
+        else:
+            # for PCNN
+            self.enc = PCNN_WORD_MEM(settings)
         self.out_feature_size += self.enc.input_size
         # re-define the attention parameter. Need to clean this logic later.
         self.r_embed = nn.Parameter(torch.zeros(self.n_rel, self.out_feature_size), requires_grad=True)

@@ -5,7 +5,7 @@ cd ..
 BATCH_SIZE=50
 MODEL=WORD_REL_MEM
 MAX_HOPS=1
-DEVICE=1
+DEVICE=0
 VERSION=1
 N_EPOCHS=15
 QUERY_TYPE=RELATION
@@ -13,6 +13,7 @@ DECAY_RATIO=0.95
 lr=0.01
 word_mem_hops=1
 rel_mem_hops=1
+CONV_TYPE=CNN
 
 CUDA_VISIBLE_DEVICES=$DEVICE python trainer.py --model=$MODEL \
                                                 --cuda \
@@ -27,4 +28,5 @@ CUDA_VISIBLE_DEVICES=$DEVICE python trainer.py --model=$MODEL \
                                                 --optimizer=adam \
                                                 --word_mem_hops=$word_mem_hops \
                                                 --rel_mem_hops=$rel_mem_hops \
-                                                --debug
+                                                --conv_type=$CONV_TYPE
+#                                                --debug
