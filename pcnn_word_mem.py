@@ -15,7 +15,6 @@ from word_rel_mem import Word_MEM
 class PCNN_WORD_MEM(PCNN):
     def __init__(self, settings):
         super(PCNN_WORD_MEM, self).__init__(settings)
-        del self.word_mem
         self.word_mem = Word_MEM(self.input_size, settings)
 
     def _enc_each_iter(self, feature, item):

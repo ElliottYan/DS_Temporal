@@ -8,12 +8,16 @@ import torch.nn.functional as F
 import sklearn.metrics as metrics
 import argparse
 import math
+from cnn import CNN
+from pcnn import PCNN
 
 # from dataset import Dataset, Temporal_Data
 # from dataset import collate_fn, collate_fn_temporal_for_pcnn, collate_fn_temporal, collate_fn1
 # import numpy as np
 # from character_process import n_letters
 # from utils import pad_sequence
+
+torch.cuda.manual_seed(0)
 
 
 class CNN_AVE(nn.Module):
@@ -100,6 +104,38 @@ class CNN_AVE(nn.Module):
             batch_features.append(features)
         return batch_features
 
+class CONV_AVE(nn.Module):
+    def __init__(self, settings):
+        super(CONV_AVE, self).__init__()
+        self.out_c = settings['out_c']
+        self.enc_type = settings['conv_type']
+        self.n_rel = settings['n_rel']
+        if self.enc_type == 'CNN':
+            self.enc = CNN(settings)
+            self.out_feature_size = self.out_c
+        else:
+            self.enc = PCNN(settings)
+            self.out_feature_size = 3 * self.out_c
+
+        self.linear = nn.Linear(self.out_feature_size, self.n_rel)
+        self.pred_sm = nn.LogSoftmax(dim=-1)
+        self.dropout = nn.Dropout(p=0.5)
+
+    def forward(self, inputs):
+        conv_out = self.enc(inputs)
+        ret = []
+
+        for each_conv_out in conv_out:
+            feature = torch.sum(each_conv_out, dim=0).reshape(1, -1) / each_conv_out.size(0)
+            ret.append(feature)
+
+        s = torch.cat(ret, dim=0)
+        # if not self.training:
+        #     features *= 0.5
+        s = self.dropout(s)
+        pred = self.linear(s)
+        pred = self.pred_sm(pred)
+        return pred
 
 
 

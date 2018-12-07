@@ -2,17 +2,15 @@
 
 cd ..
 
-BATCH_SIZE=40
-MODEL=MIML_CONV_WORD_MEM_ATT
+BATCH_SIZE=160
+MODEL=CONV_AVE
 MAX_HOPS=1
-WORD_MEM_HOPS=1
 DEVICE=1
 VERSION=1
-N_EPOCHS=10
+N_EPOCHS=20
 QUERY_TYPE=RELATION
 DECAY_RATIO=0.95
-#lr=0.007
-lr=0.001
+lr=0.00125
 CONV_TYPE=PCNN
 
 CUDA_VISIBLE_DEVICES=$DEVICE python trainer.py --model=$MODEL \
@@ -25,10 +23,8 @@ CUDA_VISIBLE_DEVICES=$DEVICE python trainer.py --model=$MODEL \
                                                 --remove_origin_query \
                                                 --query_type=$QUERY_TYPE \
                                                 --lr=$lr \
-                                                --word_mem_hops=$WORD_MEM_HOPS \
                                                 --decay_interval=1 \
                                                 --decay_ratio=$DECAY_RATIO \
-                                                --optimizer=adam \
-                                                --conv_type=$CONV_TYPE \
-                                                --use_whole_bag
+                                                --optimizer=sgd \
+                                                --conv_type=$CONV_TYPE
 #                                                --debug

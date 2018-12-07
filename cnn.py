@@ -32,7 +32,9 @@ class CNN(nn.Module):
         # torch.cuda.manual_seed(2)
         # torch.manual_seed(2)
 
-        self.conv = nn.Conv1d(1, self.out_c, (self.window, self.input_size), padding=(self.window//2, 1-self.window//2), bias=False)
+        # self.conv = nn.Conv1d(1, self.out_c, (self.window, self.input_size), padding=(self.window//2, 1-self.window//2), bias=False)
+        # this way may make the conv operation works better
+        self.conv = nn.Conv2d(1, self.out_c, (self.window, self.input_size), padding=(self.window - 1, 0), bias=False)
         self.feature_size = self.out_c
         # self.conv_bias_0 = nn.Parameter(torch.zeros(1, self.out_c),requires_grad=True)
         # self.conv_bias_1 = nn.Parameter(torch.zeros(1, self.out_c),requires_grad=True)
@@ -54,8 +56,8 @@ class CNN(nn.Module):
         # pretrained embedding
         self.w2v.weight = nn.Parameter(torch.FloatTensor(settings['word_embeds']), requires_grad=True)
 
-        eye = torch.eye(self.feature_size, self.feature_size)
-        self.att_W = nn.Parameter(eye.expand(self.n_rel, self.feature_size, self.feature_size), requires_grad=True)
+        # eye = torch.eye(self.feature_size, self.feature_size)
+        # # self.att_W = nn.Parameter(eye.expand(self.n_rel, self.feature_size, self.feature_size), requires_grad=True)
 
         # init
         con = math.sqrt(6.0/(self.out_c + self.n_rel))

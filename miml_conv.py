@@ -141,6 +141,11 @@ class MIML_CONV_ATT(nn.Module):
 class MIML_CONV_WORD_MEM_ATT(MIML_CONV_ATT):
     def __init__(self, settings):
         super(MIML_CONV_WORD_MEM_ATT, self).__init__(settings)
+        # add deletion of duplicate memeory usage for MIML_CONV_ATT
+        del self.enc
+        del self.r_embed
+        del self.r_bias
+        del self.att_W_small
         if self.enc_type == 'CNN':
             # for CNN
             self.enc = CNN_WORD_MEM(settings)

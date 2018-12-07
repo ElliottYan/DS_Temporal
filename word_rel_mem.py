@@ -81,22 +81,110 @@ class Rel_MEM(nn.Module):
             self.add_module('C_{}'.format(i), C)
         self.C = AttrProxy(self, 'C_')
         """
-        self.bilinear = nn.Parameter(torch.randn(r_feature_size, r_feature_size), requires_grad=True)
-        self.bilinear.data.uniform_(-0.01, 0.01)
+        self.att_W = nn.Parameter(torch.randn(r_feature_size, r_feature_size), requires_grad=True)
         self.softmax = nn.Softmax(dim=-1)
+        # use different r_embed here...
+        self.r_embed = nn.Parameter(torch.zeros(settings['n_rel'], r_feature_size), requires_grad=True)
+        # add q, kv
+        self.q_embed = nn.Parameter(torch.zeros(r_feature_size, r_feature_size), requires_grad=True)
+        self.kv_embed = nn.Parameter(torch.zeros(r_feature_size, r_feature_size), requires_grad=True)
+
+        # init
+        self.att_W.data.uniform_(-0.01, 0.01)
+        self.r_embed.data.uniform_(-0.01, 0.01)
+
+        self.q_embed.data.uniform_(-0.01, 0.01)
+        self.kv_embed.data.uniform_(-0.01, 0.01)
+
 
     def forward(self, r_reps):
         """
         :param r_reps: B * n_rel * r_feature_size
         :return:
         """
+        version = 1
+        # print('REL MEM Version : {}'.format(version))
         for hop in range(self.max_hops):
-            atten_weights = self.softmax(
-                                torch.bmm(r_reps,
-                                          torch.transpose(r_reps, 1, 2)))  # B * n_rel * n_rel
-            r_reps = torch.bmm(atten_weights, r_reps)
+            if version == 1:
+                r_reps = self._hop_computation_v1(r_reps)
+            elif version == 2:
+                r_reps = self._hop_computation_v2(r_reps)
+            elif version == 3:
+                r_reps = self._hop_computation_v3(r_reps)
+            elif version == 4:
+                r_reps = self._hop_computation_v4(r_reps)
+            else:
+                r_reps = self._hop_computation_v5(r_reps)
 
         return r_reps
+
+    def _hop_computation_v1(self, r_reps):
+        """
+        q, k, v : r_reps
+        not work...
+        """
+        tmp = torch.matmul(r_reps, self.att_W)
+        tmp = torch.bmm(r_reps, torch.transpose(tmp, 1, 2))
+        # B * n_rel * n_rel
+        atten_weights = self.softmax(tmp)
+        # atten_weights = self.softmax(
+        #                     torch.bmm(r_reps,
+        #                               torch.transpose(r_reps, 1, 2)))  # B * n_rel * n_rel
+        r_reps = torch.bmm(atten_weights, r_reps)
+        return r_reps
+
+    def _hop_computation_v2(self, r_reps):
+        """
+        q : r_embed
+        k, v : r_reps
+        """
+        tmp = torch.matmul(self.r_embed, self.att_W)
+        tmp = torch.matmul(r_reps, torch.transpose(tmp, 0, 1))
+        atten_weights = self.softmax(tmp)
+        r_reps = torch.bmm(atten_weights, r_reps)
+        return r_reps
+
+    def _hop_computation_v3(self, r_reps):
+        """
+        q : r_reps
+        k, v : r_embed
+        """
+        tmp = torch.matmul(self.r_embed, self.att_W)
+        tmp = torch.matmul(r_reps, torch.transpose(tmp, 0, 1))
+        # softmax should be operated on key level.
+        tmp = torch.transpose(tmp, 1, 2)
+        atten_weights = self.softmax(tmp)
+        r_reps = torch.matmul(atten_weights, self.r_embed)
+        return r_reps
+
+    def _hop_computation_v4(self, r_reps):
+        """
+        q, k, v : r_reps
+        maps to different feature space.
+        """
+        q_reps = torch.matmul(r_reps, self.q_embed)
+        kv_reps = torch.matmul(r_reps, self.kv_embed)
+        tmp = torch.matmul(q_reps, self.att_W)
+        tmp = torch.bmm(kv_reps, torch.transpose(tmp, 1, 2))
+        # B * n_rel * n_rel
+        atten_weights = self.softmax(tmp)
+        r_reps = torch.bmm(atten_weights, kv_reps)
+        return r_reps
+
+    def _hop_computation_v5(self, r_reps):
+        """
+        q : labeled r_reps
+        k, v : rel_embed
+        not work...
+        """
+        tmp = torch.matmul(self.r_embed, self.att_W)
+        tmp = torch.matmul(r_reps, torch.transpose(tmp, 0, 1))
+        # softmax should be operated on key level.
+        tmp = torch.transpose(tmp, 1, 2)
+        atten_weights = self.softmax(tmp)
+        r_reps = torch.matmul(atten_weights, self.r_embed)
+        return r_reps
+
 
 
 class Word_Rel_MEM(nn.Module):

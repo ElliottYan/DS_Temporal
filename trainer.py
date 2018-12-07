@@ -5,10 +5,11 @@ from mem_cnn import MEM_CNN_RIEDEL, MEM_CNN_WIKI
 from pcnn_one import PCNN_ONE
 from pcnn_att import PCNN_ATT
 from mem_pcnn import MEM_PCNN_RIEDEL
-from cnn_ave import CNN_AVE
+from cnn_ave import CNN_AVE, CONV_AVE
 from tm_att import TM_ATT
 from word_rel_mem import Word_Rel_MEM
 from miml_conv import MIML_CONV, MIML_CONV_ATT, MIML_CONV_WORD_MEM_ATT
+from cnn_rel_mem import MIML_CONV_ATT_REL_MEM
 
 import torch
 import torch.optim as optim
@@ -24,6 +25,7 @@ import time
 from tqdm import tqdm
 from utils import precision_recall_compute_multi, one_hot, multi_hot_label
 
+torch.cuda.manual_seed(0)
 
 class Trainer():
     def __init__(self, config):
@@ -104,6 +106,7 @@ class Trainer():
             'order_weight': config.order_weight,
             'tri_attention' : config.tri_attention,
             'conv_type' : config.conv_type,
+            'use_word_mem' : config.use_word_mem,
         }
 
         self.config = config
@@ -113,6 +116,7 @@ class Trainer():
         # self.model_str = 'CNN_ATT'
         models = {'CNN_ONE':CNN_ONE,
                   'CNN_ATT':CNN_ATT,
+                  'CONV_AVE': CONV_AVE,
                   'MEM_CNN':MEM_CNN_RIEDEL,
                   'MEM_PCNN': MEM_PCNN_RIEDEL,
                   'MEM_CNN_WIKI': MEM_CNN_WIKI,
@@ -124,6 +128,7 @@ class Trainer():
                   'MIML_CONV': MIML_CONV,
                   'MIML_CONV_ATT': MIML_CONV_ATT,
                   'MIML_CONV_WORD_MEM_ATT': MIML_CONV_WORD_MEM_ATT,
+                  'MIML_CONV_ATT_REL_MEM' : MIML_CONV_ATT_REL_MEM,
                   }
         model = models[config.model]
         self.model = model(settings)
@@ -145,7 +150,11 @@ class Trainer():
             self.model = self.model.cuda()
         self.loss_func = nn.NLLLoss(size_average=False)
         # get a easier way to do this.
-        self.binary_loss_models = {'Word_Rel_MEM', 'MIML_CONV', 'MIML_CONV_ATT', 'MIML_CONV_WORD_MEM_ATT'}
+        self.binary_loss_models = {'Word_Rel_MEM',
+                                   'MIML_CONV',
+                                   'MIML_CONV_ATT',
+                                   'MIML_CONV_WORD_MEM_ATT',
+                                   'MIML_CONV_ATT_REL_MEM'}
         if self.model_str in self.binary_loss_models:
             self.loss_func = self.binary_loss
 
@@ -260,6 +269,8 @@ class Trainer():
 
         preds = np.concatenate(preds, axis=0)
         y_true = np.concatenate(y_true, axis=0)
+        if not os.path.exists(saving_path):
+            os.mkdir(saving_path)
         precision, recall = precision_recall_compute_multi(y_true, preds)
         np.save(os.path.join(saving_path, '{}_Epoch_{}_precision.npy'.format(self.timestamp, epoch)), precision)
         np.save(os.path.join(saving_path, '{}_Epoch_{}_recall.npy'.format(self.timestamp, epoch)), recall)
@@ -512,10 +523,10 @@ def parse_config():
     parser.add_argument("--problem", type=str, default='NYT-10')
     parser.add_argument('--use_noise_and_clip', action='store_true')
     parser.add_argument('--use_whole_bag', action='store_true')
+    parser.add_argument('--use_word_mem', action='store_true')
     parser.add_argument('--tri_attention', action='store_true')
     parser.add_argument("--optimizer", type=str, default='sgd')
     parser.add_argument("--conv_type", type=str, default='CNN')
-
 
     return parser.parse_args()
 

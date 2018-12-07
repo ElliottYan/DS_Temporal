@@ -25,7 +25,7 @@ CUDA_VISIBLE_DEVICES=$DEVICE python trainer.py --model=$MODEL \
                                                 --remove_origin_query \
                                                 --query_type=$QUERY_TYPE \
                                                 --lr=$lr \
-                                                --optimizer=adam \
+                                                --optimizer=sgd \
                                                 --word_mem_hops=$word_mem_hops \
                                                 --rel_mem_hops=$rel_mem_hops \
                                                 --conv_type=$CONV_TYPE
