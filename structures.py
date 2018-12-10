@@ -4,6 +4,7 @@ class time_signature(object):
     def __init__(self, time, relation='NA', node_type='start'):
         time = extract(time)
         self.time = time
+        self.time_str = '-'.join(map(str,time))
         #       in each time point, the relation is a tuple indicates its before and after relationships
         self.relation = relation
         self.type = node_type
@@ -15,9 +16,12 @@ class time_signature(object):
     def __cmp__(self, x):
         return cmp(self.time[0], x.time[0])
 
+    # equal defined in year level.
+    def __eq__(self, other):
+        return self.time[0] == other.time[0]
+
     #   less than
     def __lt__(self, x):
-
         # use year as turning point
         if self.time[0] == x.time[0] and self.time[1] == self.time[1]:
             if x.type == "mention":
@@ -49,12 +53,15 @@ def extract(time):
 
 
 class Mention(object):
-    def __init__(self, sent, tag='NA', tag_name=None, time=None, pos1=0, pos2=0):
+    def __init__(self, sent, org_sent="", en_pair_str='', tag='NA', tag_name=None, time=None, pos1=0, pos2=0, rank=0):
         self.sent = sent
+        self.org_sent = org_sent
+        self.en_pair_str = en_pair_str
         self.time = time
         self.pos = (pos1, pos2)
         self.tag = tag
         self.tag_name = tag_name
+        self.rank = rank
 
     def __lt__(self, x):
         return self.time < x.time

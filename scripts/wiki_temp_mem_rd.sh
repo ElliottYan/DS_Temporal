@@ -2,10 +2,10 @@
 
 cd ..
 
-BATCH_SIZE=160
-MODEL=CNN_AVE
-MAX_HOPS=3
-DEVICE=1
+BATCH_SIZE=32
+MODEL=MEM_CNN_WIKI
+MAX_HOPS=2
+DEVICE=2
 VERSION=1
 N_EPOCHS=50
 QUERY_TYPE=RELATION
@@ -32,4 +32,5 @@ CUDA_VISIBLE_DEVICES=$DEVICE python trainer.py --model=$MODEL \
                                                 --lr=$lr \
                                                 --decay_ratio=$DECAY_RATIO \
                                                 --use_noise_and_clip
-#                                                --circular
+#                                                --query_last
+

@@ -23,7 +23,7 @@ import pdb
 import numpy as np
 import time
 from tqdm import tqdm
-from utils import precision_recall_compute_multi, one_hot, multi_hot_label
+from utils import precision_recall_compute_multi, one_hot, multi_hot_label, compute_max_f1
 
 torch.cuda.manual_seed(0)
 
@@ -54,7 +54,7 @@ class Trainer():
 
         self.batch_size = config.batch_size
 
-        if config.problem == 'WIKI-TIME' and config.model != 'MEM_CNN_WIKI':
+        if config.query_last or (config.problem == 'WIKI-TIME' and config.model != 'MEM_CNN_WIKI'):
             collate_fn = self.train_data.collate_bag_fn
         else:
             collate_fn = self.train_data.collate_fn
@@ -107,6 +107,8 @@ class Trainer():
             'tri_attention' : config.tri_attention,
             'conv_type' : config.conv_type,
             'use_word_mem' : config.use_word_mem,
+            'scalable_circular' : config.scalable_circular,
+            'query_last' : config.query_last,
         }
 
         self.config = config
@@ -135,16 +137,15 @@ class Trainer():
         # self.model_str = 'MEM_CNN_RIEDEL'
         self.model_str = str(self.model.__class__.__name__)
 
-        # load some of the pretrained weights
-        # pre_model_path = '/data/yanjianhao/nlp/torch/torch_NRE/model/CNN_ATT_epoch_14'
-        pre_model_path = './model/CNN_ATT_epoch_14'
-        model_dict = self.model.state_dict()
-        pretrained_dict = torch.load(pre_model_path)
-        # filter different keys
-        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
-        model_dict.update(pretrained_dict)
-        # load the state dict
-        # self.model.load_state_dict(model_dict)
+        if config.use_pretrain:
+            # load some of the pretrained weights
+            pre_model_path = '/data/yanjianhao/nlp/torch/torch_NRE/model/CNN_ATT_epoch_14'
+            pre_model_path = './model/CNN_ATT_epoch_14'
+            model_dict = self.model.state_dict()
+            pretrained_dict = torch.load(pre_model_path)
+            # filter different keys
+            pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
+            model_dict.update(pretrained_dict)
 
         if torch.cuda.is_available():
             self.model = self.model.cuda()
@@ -202,6 +203,7 @@ class Trainer():
 
     def train(self):
         model_root = "./model/"
+        max_f1 = 0
         for i in range(self.max_epochs):
             print('TimeStamp: {}'.format(self.timestamp))
             print('Epoch {}:'.format(i))
@@ -240,14 +242,17 @@ class Trainer():
                 batch_ix += 1
 
             if self.problem == 'WIKI-TIME' and self.model_str == 'MEM_CNN_WIKI':
-                self.evaluate_bag(epoch=i)
-                self.evaluate_all(epoch=i)
+                f1 = self.evaluate_bag(epoch=i)
+                all_f1 = self.evaluate_all(epoch=i)
             elif self.model_str in self.binary_loss_models:
-                self.evaluate_binary(epoch=i)
+                f1 = self.evaluate_binary(epoch=i)
             else:
-                self.evaluate(epoch=i)
-        model_path = os.path.join(model_root, '{}_{}_epoch_{}'.format(self.timestamp, self.model_str, str(self.max_epochs)))
-        torch.save(self.model.state_dict(), model_path)
+                f1 = self.evaluate(epoch=i)
+            print('F1 score for epoch {}: {}'.format(str(i), str(f1)))
+            if f1 > max_f1:
+                max_f1 = f1
+                model_path = os.path.join(model_root, '{}_{}_best.model'.format(self.timestamp, self.model_str, str(self.max_epochs)))
+                torch.save(self.model.state_dict(), model_path)
 
 
     def evaluate(self, epoch=None):
@@ -272,14 +277,15 @@ class Trainer():
         if not os.path.exists(saving_path):
             os.mkdir(saving_path)
         precision, recall = precision_recall_compute_multi(y_true, preds)
+        f1 = compute_max_f1(precision, recall)
         np.save(os.path.join(saving_path, '{}_Epoch_{}_precision.npy'.format(self.timestamp, epoch)), precision)
         np.save(os.path.join(saving_path, '{}_Epoch_{}_recall.npy'.format(self.timestamp, epoch)), recall)
         # self.train()
         self.model.train()
 
-        return
+        return f1
 
-    def evaluate_binary(self, epoch=None):
+    def evaluate_binary(self, epoch=None, max_f1=0):
         '''
         In models with binary loss, they use sigmoid as the probability computing layer.
         So logits is enough to rank them.
@@ -327,12 +333,14 @@ class Trainer():
         preds = np.concatenate(preds, axis=0)
         y_true = np.concatenate(y_true, axis=0)
         precision, recall = precision_recall_compute_multi(y_true, preds)
+        f1 = compute_max_f1(precision, recall)
         if not os.path.exists(saving_path):
             os.mkdir(saving_path)
         np.save(os.path.join(saving_path, '{}_Epoch_{}_all_precision.npy'.format(self.timestamp, epoch)), precision)
         np.save(os.path.join(saving_path, '{}_Epoch_{}_all_recall.npy'.format(self.timestamp, epoch)), recall)
         # no saving now.
         self.model.train()
+        return f1
 
 
     def evaluate_bag(self, epoch=None):
@@ -357,12 +365,12 @@ class Trainer():
         preds = np.concatenate(preds, axis=0)
         y_true = np.concatenate(y_true, axis=0)
         precision, recall = precision_recall_compute_multi(y_true, preds)
+        f1 = compute_max_f1(precision, recall)
         np.save(os.path.join(saving_path, '{}_Epoch_{}_bag_precision.npy'.format(self.timestamp, epoch)), precision)
         np.save(os.path.join(saving_path, '{}_Epoch_{}_bag_recall.npy'.format(self.timestamp, epoch)), recall)
-        # self.train()
         self.model.train()
 
-        return
+        return f1
 
     def evaluate_all(self, epoch=None):
         saving_path = './results/' + self.model_str
@@ -386,6 +394,7 @@ class Trainer():
         preds = np.concatenate(preds, axis=0)
         y_true = np.concatenate(y_true, axis=0)
         precision, recall = precision_recall_compute_multi(y_true, preds)
+        f1 = compute_max_f1(precision, recall)
         if not os.path.exists(saving_path):
             os.mkdir(saving_path)
         np.save(os.path.join(saving_path, '{}_Epoch_{}_all_precision.npy'.format(self.timestamp, epoch)), precision)
@@ -393,7 +402,7 @@ class Trainer():
         # self.train()
         self.model.train()
 
-        return
+        return f1
 
     # test for model
     def test(self):
@@ -403,6 +412,12 @@ class Trainer():
             model_path = os.path.join(model_root, '{}_epoch_{}'.format(self.model_str, str(i)))
             self.model.load_state_dict(torch.load(model_path))
             self.evaluate(epoch=i)
+
+    # for specified model path
+    def test_model(self, model_path):
+        self.model.load_state_dict(torch.load(model_path))
+        self.evaluate_all()
+        self.evaluate_bag()
 
     # ids can be list-shape object
     # deal with multi-label scenario
@@ -487,9 +502,6 @@ class FocalLoss(nn.Module):
 
 
 
-
-
-
 def parse_config():
     parser = argparse.ArgumentParser()
     parser.add_argument("--cuda", action="store_true")
@@ -525,6 +537,9 @@ def parse_config():
     parser.add_argument('--use_whole_bag', action='store_true')
     parser.add_argument('--use_word_mem', action='store_true')
     parser.add_argument('--tri_attention', action='store_true')
+    parser.add_argument('--use_pretrain', action='store_true')
+    parser.add_argument('--scalable_circular', action='store_true')
+    parser.add_argument('--query_last', action='store_true')
     parser.add_argument("--optimizer", type=str, default='sgd')
     parser.add_argument("--conv_type", type=str, default='CNN')
 

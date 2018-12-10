@@ -54,3 +54,10 @@ def precision_recall_compute_multi(labels, y_pred):
     recall_hat = np.array(recall_hat)
     return precision_hat, recall_hat
 
+def compute_max_f1(precision, recall):
+    max_f1 = 0
+    for k in range(len(precision)):
+        f1 = 2 * (precision[k] * recall[k]) / (precision[k] + recall[k])
+        max_f1 = max([max_f1, f1])
+    return max_f1
+

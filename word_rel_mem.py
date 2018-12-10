@@ -102,7 +102,7 @@ class Rel_MEM(nn.Module):
         :param r_reps: B * n_rel * r_feature_size
         :return:
         """
-        version = 1
+        version = 6
         # print('REL MEM Version : {}'.format(version))
         for hop in range(self.max_hops):
             if version == 1:
@@ -113,9 +113,10 @@ class Rel_MEM(nn.Module):
                 r_reps = self._hop_computation_v3(r_reps)
             elif version == 4:
                 r_reps = self._hop_computation_v4(r_reps)
-            else:
+            elif version == 5:
                 r_reps = self._hop_computation_v5(r_reps)
-
+            elif version == 6:
+                r_reps = self._hop_computation_v6(r_reps)
         return r_reps
 
     def _hop_computation_v1(self, r_reps):
@@ -185,6 +186,16 @@ class Rel_MEM(nn.Module):
         r_reps = torch.matmul(atten_weights, self.r_embed)
         return r_reps
 
+    def _hop_computation_v6(self, r_reps):
+        """
+        q, k, v : r_reps
+        r_rel only for testing. remove the att_W which is not trained...
+        """
+        tmp = torch.bmm(r_reps, torch.transpose(r_reps, 1, 2))
+        # B * n_rel * n_rel
+        atten_weights = self.softmax(tmp)
+        r_reps = torch.bmm(atten_weights, r_reps)
+        return r_reps
 
 
 class Word_Rel_MEM(nn.Module):

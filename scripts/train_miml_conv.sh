@@ -5,9 +5,9 @@ cd ..
 BATCH_SIZE=50
 MODEL=MIML_CONV
 MAX_HOPS=1
-DEVICE=1
+DEVICE=2
 VERSION=1
-N_EPOCHS=10
+N_EPOCHS=20
 QUERY_TYPE=RELATION
 DECAY_RATIO=0.95
 lr=0.005
@@ -25,7 +25,7 @@ CUDA_VISIBLE_DEVICES=$DEVICE python trainer.py --model=$MODEL \
                                                 --lr=$lr \
                                                 --decay_interval=1 \
                                                 --decay_ratio=$DECAY_RATIO \
-                                                --optimizer=adam \
+                                                --optimizer=adadelta \
                                                 --conv_type=$CONV_TYPE \
                                                 --use_whole_bag
 #                                                --debug

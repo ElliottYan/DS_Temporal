@@ -136,7 +136,10 @@ class MEM_CNN_RIEDEL(nn.Module):
         else:
             self.order_embed = None
 
-        self.order_weight = settings['order_weight']
+        if not settings['scalable_circular']:
+            self.order_weight = settings['order_weight']
+        else:
+            self.order_weight = nn.Parameter(torch.Tensor([1.]), requires_grad=True)
 
         self.r_embed = nn.Parameter(torch.zeros(self.n_rel, self.out_c), requires_grad=True)
         self.r_bias = nn.Parameter(torch.zeros(self.n_rel), requires_grad=True)
@@ -282,6 +285,7 @@ class MEM_CNN_RIEDEL(nn.Module):
             ret.append(self.M(item))
         return ret
 
+
     # this is for riedel-10 dataset
     def _predict_bag(self, mem_bags, queries, labels=None):
         bz = len(labels)
@@ -376,7 +380,7 @@ class MEM_CNN_WIKI(MEM_CNN_RIEDEL):
         memory_dim = self.query_dim
         if self.order_embed is not None:
             memory_dim += self.order_embed_size
-        for i in range(self.max_hops):
+        for i in range(self.hop_size):
             # also add bias ?
             C = nn.Linear(self.out_feature_size, memory_dim, bias=False)
             C.weight.data.normal_(0, 0.1)
@@ -389,6 +393,8 @@ class MEM_CNN_WIKI(MEM_CNN_RIEDEL):
         con = math.sqrt(6.0/(self.query_dim + self.n_rel))
         nn.init.uniform_(self.r_embed, a=-con, b=con)
         nn.init.uniform_(self.r_bias, a=-con, b=con)
+
+        self.query_last = settings['query_last']
 
         self.bilinear = nn.Parameter(torch.randn(memory_dim, self.query_dim), requires_grad=True)
 
@@ -410,7 +416,7 @@ class MEM_CNN_WIKI(MEM_CNN_RIEDEL):
 
         # queries = self._create_queries_2(inputs)
         labels = [item['label'] for item in inputs]
-        pred = self._predict(mem_bags, queries, labels=labels)
+        pred = self._predict(mem_bags, queries, labels=labels, inputs=inputs)
         return pred
 
     # predcit function for entity-advised query
@@ -421,7 +427,10 @@ class MEM_CNN_WIKI(MEM_CNN_RIEDEL):
         for ix, memory in enumerate(mem_bags):
             # query here is with size : 1 * query_dim
             query_r = queries[ix]
-            query_r = torch.cat([query_r] * memory.size(0), dim=0)
+            if not self.query_last:
+                query_r = torch.cat([query_r] * memory.size(0), dim=0)
+            else:
+                query_r = query_r.reshape(1, -1)
 
             # maybe should consider limit the bag size of inputs
             # todo : need more serious thoughts
@@ -454,8 +463,6 @@ class MEM_CNN_WIKI(MEM_CNN_RIEDEL):
                 # adding attention-bias
                 prob = self.atten_sm(tmp)
                 # prob = prob.view(prob_size)
-                if self.debug:
-                    pdb.set_trace()
 
                 # for each query and each relation
                 o_k = torch.matmul(prob, m_val)
@@ -474,19 +481,24 @@ class MEM_CNN_WIKI(MEM_CNN_RIEDEL):
         return ret
 
     # In this version, I use standard memN2N structure
-    def _predict(self, mem_bags, queries, labels=None):
+    def _predict(self, mem_bags, queries, labels=None, inputs=None):
         ret = []
         # trained one by one
         # memory is bag_size * out_dim
         for ix, memory in enumerate(mem_bags):
             # query here is with size : n_rel * D
             query_r = queries[ix]
-            # query_r = query_r.expand((memory.size(0),) + query_r.size())
-            query_r = torch.stack([query_r] * memory.size(0))
+            if not self.query_last:
+                # query_r = torch.cat([query_r] * memory.size(0), dim=0)
+                query_r = torch.stack([query_r] * memory.size(0))
+            else:
+                query_r = query_r.unsqueeze(0)
             query = query_r
 
             # maybe should consider limit the bag size of inputs
             # todo : need more serious thoughts
+            pdb.set_trace()
+            lookup_tensor = [each_input.rank for each_input in inputs[ix]]
             lookup_tensor = torch.cuda.LongTensor(
                 list(range(memory.size(0)))[:self.bag_size] + \
                 (memory.size(0) - self.bag_size) * [0])
@@ -498,7 +510,10 @@ class MEM_CNN_WIKI(MEM_CNN_RIEDEL):
                 memory = torch.cat([memory, order_embed], dim=-1)
                 order_embed = order_embed.view(order_embed.size(0), 1, order_embed.size(-1))
                 order_embed = torch.cat([order_embed] * self.n_rel, dim=1)
-                # query : bag_size * n_rel * (order_embed_size + query_size)
+                # query : query_size (maybe bag_size) * n_rel * (order_embed_size + query_size)
+
+                # suit the case when memory_size != query_size
+                order_embed = order_embed[:query.size(0)]
                 # each indicates a query for answer of one relation
                 query = torch.cat([query_r, order_embed], dim=-1)
 
@@ -532,7 +547,10 @@ class MEM_CNN_WIKI(MEM_CNN_RIEDEL):
                 o_k = torch.matmul(prob, m_val)
 
                 # update its query_r
-                query = query + o_k
+                try:
+                    query = query + o_k
+                except:
+                    pdb.set_trace()
             # can substract the query vector out to find which is our target.
             query = self.dropout(query)
             if self.order_embed is not None:
@@ -555,7 +573,7 @@ class MEM_CNN_WIKI(MEM_CNN_RIEDEL):
                     scores = self.pred_sm(scores.view(-1, self.n_rel)).view(scores.size(0), self.n_rel, self.n_rel).max(1)[0].view(scores.size(0), -1)
             else:
                 scores = (query * self.r_embed).sum(dim=-1) + self.r_bias
-                scores = self.pred_sm(scores.view(memory.size(0), -1))
+                scores = self.pred_sm(scores.view(query.size(0), -1))
 
             ret.append(self.pred_sm(scores))
         return ret

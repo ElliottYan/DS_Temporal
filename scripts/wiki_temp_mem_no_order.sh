@@ -2,9 +2,9 @@
 
 cd ..
 
-BATCH_SIZE=160
-MODEL=CNN_AVE
-MAX_HOPS=3
+BATCH_SIZE=32
+MODEL=MEM_CNN_WIKI
+MAX_HOPS=2
 DEVICE=1
 VERSION=1
 N_EPOCHS=50
@@ -21,7 +21,6 @@ CUDA_VISIBLE_DEVICES=$DEVICE python trainer.py --model=$MODEL \
                                                 --dataset_dir=$DATA_ROOT \
                                                 --cuda \
                                                 --position_embedding \
-                                                --order_embed \
                                                 --max_hops=$MAX_HOPS \
                                                 --batch_size=$BATCH_SIZE \
                                                 --mem_version=$VERSION \
@@ -32,4 +31,3 @@ CUDA_VISIBLE_DEVICES=$DEVICE python trainer.py --model=$MODEL \
                                                 --lr=$lr \
                                                 --decay_ratio=$DECAY_RATIO \
                                                 --use_noise_and_clip
-#                                                --circular

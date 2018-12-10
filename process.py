@@ -250,19 +250,22 @@ def construct_dataset(file_path, labels, w_to_ix, train_test='train', en2id=None
         lines = f.readlines()
     for line in lines:
         tmp = line.split()
-        rel, ix = " ".join(tmp[:-1]), int(tmp[-1])
+        rel, ix = "_".join(tmp[:-1]), int(tmp[-1])
         rel_to_ix[rel] = ix
     # rel_to_ix['PAD'] = len(rel_to_ix)
     print('Reading rel_to_ix done!')
 
     mentions = defaultdict(list)
     natural = defaultdict(list)
+    en2labels = defaultdict(list)
+    mention_filter = defaultdict(set)
 
     with open(file_path, 'r') as f:
         lines = f.readlines()
 
     debug = False
     outputs = dict()
+    count = 0
     for line in lines:
         # count += 1
         # if count > 5:
@@ -288,6 +291,8 @@ def construct_dataset(file_path, labels, w_to_ix, train_test='train', en2id=None
         # outputs.append(str([en1, en2]) + " : \n")
 
         for en1, en2 in product(en1_list, en2_list):
+            if tuple(sent) in mention_filter[(en1, en2)]:
+                continue
 
             #   swap in case en1 and en2 's order may differ
             if labels[(en2, en1)]:
@@ -296,13 +301,14 @@ def construct_dataset(file_path, labels, w_to_ix, train_test='train', en2id=None
                 # pdb.set_trace()
                 continue
                 # pass
+            en2label = labels[(en1, en2)]
             outputs[(en1, en2)] = []
             tmp = time_signature("-".join([year, month, day]), node_type='mention')
             # pdb.set_trace()
             if (en1, en2) == ('netherlands', 'dries_van_agt'):
                 # pdb.set_trace()
                 continue
-            tag = check_relation(labels[(en1, en2)], tmp)
+            tag = check_relation(en2label, tmp)
 
             if tag not in rel_to_ix.keys():
                 # rel_to_ix[tag] = len(rel_to_ix) - 1
@@ -315,10 +321,11 @@ def construct_dataset(file_path, labels, w_to_ix, train_test='train', en2id=None
             natural[(en1, en2)].append(Mention(tag_name, tmp, sent))
 
             # mentions[(en1, en2)].append()
+            org_sent = sent
             if not debug:
                 sent = [w_to_ix[word] if w_to_ix[word] else w_to_ix['UNK'] for word in sent]
             # mentions.append((pos1, pos2, sent, year, month, day, tag))
-            # pdb.set_trace()
+            en_pair_str = (en1, en2)
             if en2id:
                 if en1 not in en2id.keys():
                     en2id[en1] = len(en2id)
@@ -326,11 +333,22 @@ def construct_dataset(file_path, labels, w_to_ix, train_test='train', en2id=None
                     en2id[en2] = len(en2id)
                 # else:
                 en1, en2 = en2id[en1], en2id[en2]
-            mentions[(en1, en2)].append(Mention(sent, tag=tag, tag_name=tag_name, pos1=int(pos1), pos2=int(pos2), time=tmp))
+            count += 1
+            mention_filter[(en1, en2)].add(tuple(sent))
+            en2labels[(en1, en2)] = en2label
+            mentions[(en1, en2)].append(Mention(sent, en_pair_str=en_pair_str, org_sent=org_sent, tag=tag, tag_name=tag_name, pos1=int(pos1), pos2=int(pos2), time=tmp))
 
+    print('mention count : {}'.format(count))
     # keep mentions sorted
     for key, item in mentions.items():
         item.sort()
+        rank = 0
+        for i in range(1, len(item)):
+            if item[i].time == item[i-1].time:
+                item[i].rank = rank
+            else:
+                rank += 1
+                item[i].rank = rank
     print('Finish create labels!')
 
     if debug:
@@ -370,7 +388,7 @@ def construct_dataset(file_path, labels, w_to_ix, train_test='train', en2id=None
 
     print('Finish save intermediate results! ')
     # pdb.set_trace()
-    return mentions, rel_to_ix, natural
+    return mentions, rel_to_ix, natural, en2labels
 
 
 def Normalization(s):

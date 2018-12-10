@@ -16,6 +16,8 @@ import torch
 from sklearn.preprocessing import normalize
 import struct
 
+random.seed(10)
+
 
 class Riedel_10(data.Dataset):
     def __init__(self, root, train_test='train', debug=False, use_whole_bag=True):
@@ -202,8 +204,12 @@ class WIKI_TIME(data.Dataset):
         # dict : [(en1_poss, en2_pos, [word,]),]
 
         self.labels = process.create_labels()
-        self.dict, self.rel_to_ix, self.natural = process.construct_dataset(os.path.join(root, file_name), self.labels, self.w_to_ix,
-                                                      train_test=train_test, en2id=self.en2id)
+        self.dict, self.rel_to_ix, self.natural, self.en2labels = process.construct_dataset(os.path.join(root,
+                                                                                                         file_name),
+                                                                                            self.labels,
+                                                                                            self.w_to_ix,
+                                                                                            train_test=train_test,
+                                                                                            en2id=self.en2id)
         # the length of en2id could be update in func : construct_dataset
         self.n_entity = len(self.en2id)
         self.key_list = list(self.dict.keys())
@@ -231,7 +237,7 @@ class WIKI_TIME(data.Dataset):
         bag = self.dict[en_pair]
 
         # ret['bag'] = bag
-        bag,labels = self.extract_mentions(bag)
+        bag, labels, ranks = self.extract_mentions(bag)
         tensor_bag = []
         for item in bag:
             tensor_bag.append(torch.cuda.LongTensor(item))
@@ -240,6 +246,7 @@ class WIKI_TIME(data.Dataset):
         ret['bag'] = tensor_bag
         ret['label'] = tensor_labels
         ret['en_pair'] = en_pair
+        ret['ranks'] = ranks
 
         return ret
 
@@ -258,6 +265,7 @@ class WIKI_TIME(data.Dataset):
     def extract_mentions(self, mentions):
         ret = []
         labels = []
+        ranks = []
         for item in mentions:
             sent_len = len(item.sent)
             pos1 = item.pos[0]
@@ -273,7 +281,43 @@ class WIKI_TIME(data.Dataset):
                 con.append([item.sent[j], conl, conr])
             ret.append(con)
             labels.append(item.tag)
+            ranks.append(item.rank)
 
-        return ret, labels
+        return ret, labels, ranks
+
+    def generate_manual_test_case(self, output_file, generate_length=200):
+        ids = list(range(len(self.key_list)))
+        random.shuffle(ids)
+        ids = ids[:generate_length]
+        with open(output_file, 'w') as f:
+            max_len = min(generate_length, len(self.key_list))
+            for i in range(max_len):
+                id = ids[i]
+                key = self.key_list[id]
+                mentions = self.dict[key]
+                labels = self.en2labels[key]
+                key_str = '\t'.join(mentions[0].en_pair_str)
+                label_str = "\t".join(["{} : {}".format(label.time_str, label.relation) for label in labels])
+                f.write(key_str + '\n')
+                f.write("Ground Truth: \t" + label_str + '\n')
+                for mention in mentions:
+                    mention_str = '\t'.join([mention.time.time_str, ' '.join(mention.org_sent), mention.tag_name])
+                    f.write(mention_str + '\n')
+                f.write('###########\n')
+        return
+
+if __name__ == '__main__':
+    wiki = WIKI_TIME('./data', train_test='test')
+    out_dir = './manual_test'
+    if not os.path.exists(out_dir):
+        os.mkdir(out_dir)
+    wiki.generate_manual_test_case(os.path.join(out_dir, 'manual.test'))
+    # wiki.generate_manual_test_case(os.path.join(out_dir, 'manual.test_all'), generate_length=10000)
+
+
+
+
+
+
 
 
