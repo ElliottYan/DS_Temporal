@@ -10,11 +10,12 @@ import process
 # import attacker
 from collections import defaultdict
 import numpy as np
+import struct
 import torch
 # from process import construct_dataset, create_labels
 # from character_process import strToList, n_letters
 from sklearn.preprocessing import normalize
-import struct
+from structures import time_signature, Mention
 
 random.seed(10)
 
@@ -193,8 +194,11 @@ class WIKI_TIME(data.Dataset):
     def __init__(self, root, train_test='train', transform=None, position_embed=True, debug=False):
         if train_test == 'train':
             file_name = 'mini_train_temporal_v2.txt'
-        else:
+        elif train_test == "test":
             file_name = 'mini_test_temporal_v2.txt'
+        elif train_test == "manual_test":
+            file_name = 'mini_test_temporal_v2.txt'
+            manual_file_name = 'manual_test/labeling_task/dic.dat'
         vec_name = 'glove.txt'
         self.w_to_ix, self.w2v = process.read_in_vec(os.path.join(root, vec_name))
         # length of en2id > en_vecs
@@ -204,6 +208,7 @@ class WIKI_TIME(data.Dataset):
         # dict : [(en1_poss, en2_pos, [word,]),]
 
         self.labels = process.create_labels()
+
         self.dict, self.rel_to_ix, self.natural, self.en2labels = process.construct_dataset(os.path.join(root,
                                                                                                          file_name),
                                                                                             self.labels,
@@ -226,6 +231,10 @@ class WIKI_TIME(data.Dataset):
         print(self.n_rel)
         print("# of bags:")
         print(self.__len__())
+
+        if train_test == 'manual_test':
+            self.replace_with_manual_label(os.path.join(root, manual_file_name))
+
 
     def __getitem__(self, index):
         # multi-instance learning
@@ -306,12 +315,77 @@ class WIKI_TIME(data.Dataset):
                 f.write('###########\n')
         return
 
+    def compute_manual_test_metric(self, file_path):
+        with open(file_path, 'rb') as f:
+            dic = pickle.load(f)
+        count = 0
+        tot = 0
+        tagged = []
+        manual = []
+        escaped_counts = 0
+        for en_pair, val in dic.items():
+            en1, en2 = list(map(lambda x: self.en2id[x], en_pair))
+            tagged_labels = [item.tag for item in self.dict[(en1, en2)]]
+            # tagged_labels = [self.rel_to_ix[item] for item in tagged_labels]
+            # relation ids
+            mentions1 = [item.org_sent for item in self.dict[(en1, en2)]]
+            mentions2 = [item[1] for item in val]
+            manual_labels = [item[2] for item in val]
+            i, j = 0, 0
+            # for i in range(len(manual_labels)):
+            while i < len(mentions1) and j < len(mentions2):
+                # pdb.set_trace()
+                if " ".join(mentions1[i]).strip() == mentions2[i].strip():
+                    tot += 1
+                    if manual_labels[j] == tagged_labels[i]:
+                        count += 1
+                    i += 1
+                    j += 1
+                else:
+                    j += 1
+                    escaped_counts += 1
+
+            '''
+            try:
+                assert len(manual_labels) == len(tagged_labels)
+            except:
+                escaped_counts += len(manual_labels)
+                print(en_pair)
+                continue
+            tagged += tagged_labels
+            manual += manual_labels
+            '''
+        print("Dataset acc : {}".format(float(count) / tot))
+        print("Escaped counts : {}".format(escaped_counts))
+
+    def replace_with_manual_label(self, file_path):
+        with open(file_path, 'rb') as f:
+            dic = pickle.load(f)
+
+        new_dict = defaultdict(list)
+        escaped_counts = 0
+        for en_pair, val in dic.items():
+            en1, en2 = list(map(lambda x: self.en2id[x], en_pair))
+            tagged_sents = self.dict[(en1, en2)]
+            manual_labels = [item[2] for item in val]
+            if len(tagged_sents) != len(manual_labels):
+                escaped_counts += len(manual_labels)
+                continue
+            for i, item in enumerate(tagged_sents):
+                item.tag = manual_labels[i]
+            new_dict[(en1, en2)] = tagged_sents
+        self.dict = new_dict
+        self.key_list = list(self.dict.keys())
+
+        return
+
 if __name__ == '__main__':
     wiki = WIKI_TIME('./data', train_test='test')
     out_dir = './manual_test'
     if not os.path.exists(out_dir):
         os.mkdir(out_dir)
     wiki.generate_manual_test_case(os.path.join(out_dir, 'manual.test'))
+    wiki.compute_manual_test_metric('./manual_test/labeling_task/dic.dat')
     # wiki.generate_manual_test_case(os.path.join(out_dir, 'manual.test_all'), generate_length=10000)
 
 

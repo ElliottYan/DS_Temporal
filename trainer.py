@@ -23,7 +23,7 @@ import pdb
 import numpy as np
 import time
 from tqdm import tqdm
-from utils import precision_recall_compute_multi, one_hot, multi_hot_label, compute_max_f1
+from utils import precision_recall_compute_multi, one_hot, multi_hot_label, compute_max_f1, compute_average_f1
 
 torch.cuda.manual_seed(0)
 
@@ -49,6 +49,10 @@ class Trainer():
             self.test_data = WIKI_TIME(root, train_test='test',
                                        debug=config.debug)
                                        # use_whole_bag=config.use_whole_bag)
+            if config.manual_test:
+                print("Reading Manual Test data!")
+                self.manual_test_data = WIKI_TIME(root, train_test='manual_test',
+                                                  debug=config.debug)
 
         self.noise_and_clip = config.use_noise_and_clip
 
@@ -70,6 +74,13 @@ class Trainer():
                                             pin_memory=False,
                                             shuffle=False,
                                             collate_fn=collate_fn)
+        if config.manual_test:
+            print('Replace test loader with that of manual test data!')
+            self.test_loader = data.DataLoader(self.manual_test_data,
+                                               batch_size=config.batch_size,
+                                               pin_memory=False,
+                                               shuffle=False,
+                                               collate_fn=collate_fn)
         # print('Finish reading in test data!')
 
 
@@ -109,13 +120,11 @@ class Trainer():
             'use_word_mem' : config.use_word_mem,
             'scalable_circular' : config.scalable_circular,
             'query_last' : config.query_last,
+            'use_rank' : config.use_rank,
         }
 
         self.config = config
-        # self.model = CNN_ONE(settings)
-        # self.model_str = 'CNN_ONE'
-        # self.model = CNN_ATT(settings)
-        # self.model_str = 'CNN_ATT'
+
         models = {'CNN_ONE':CNN_ONE,
                   'CNN_ATT':CNN_ATT,
                   'CONV_AVE': CONV_AVE,
@@ -139,13 +148,16 @@ class Trainer():
 
         if config.use_pretrain:
             # load some of the pretrained weights
-            pre_model_path = '/data/yanjianhao/nlp/torch/torch_NRE/model/CNN_ATT_epoch_14'
-            pre_model_path = './model/CNN_ATT_epoch_14'
+            if config.model_path:
+                pre_model_path = config.model_path
+            else:
+                pre_model_path = './model/CNN_ATT_epoch_14'
             model_dict = self.model.state_dict()
             pretrained_dict = torch.load(pre_model_path)
             # filter different keys
             pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
             model_dict.update(pretrained_dict)
+
 
         if torch.cuda.is_available():
             self.model = self.model.cuda()
@@ -414,10 +426,18 @@ class Trainer():
             self.evaluate(epoch=i)
 
     # for specified model path
-    def test_model(self, model_path):
-        self.model.load_state_dict(torch.load(model_path))
-        self.evaluate_all()
-        self.evaluate_bag()
+    def test_model(self):
+        if not self.config.model_path:
+            raise ValueError("You need to set the model path.")
+        self.model.load_state_dict(torch.load(self.config.model_path))
+        if self.model_str.startswith('MEM'):
+            all_f1 = self.evaluate_all()
+            bag_f1 = self.evaluate_bag()
+            print('Bag-level f1 : {}'.format(str(bag_f1)))
+            print('Query-level f1 : {}'.format(str(all_f1)))
+        else:
+            f1 = self.evaluate()
+            print('f1 : {}'.format(str(f1)))
 
     # ids can be list-shape object
     # deal with multi-label scenario
@@ -538,10 +558,13 @@ def parse_config():
     parser.add_argument('--use_word_mem', action='store_true')
     parser.add_argument('--tri_attention', action='store_true')
     parser.add_argument('--use_pretrain', action='store_true')
+    parser.add_argument('--manual_test', action='store_true')
     parser.add_argument('--scalable_circular', action='store_true')
     parser.add_argument('--query_last', action='store_true')
+    parser.add_argument('--use_rank', action='store_true')
     parser.add_argument("--optimizer", type=str, default='sgd')
     parser.add_argument("--conv_type", type=str, default='CNN')
+    parser.add_argument("--model_path", type=str, default="")
 
     return parser.parse_args()
 

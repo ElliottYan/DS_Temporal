@@ -13,6 +13,10 @@ from cnn import CNN
 from cnn_word_mem import CNN_WORD_MEM
 
 
+'''
+
+'''
+
 class TEMP_MEM(nn.Module):
     def __init__(self, settings):
         super(TEMP_MEM, self).__init__()

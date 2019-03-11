@@ -136,6 +136,8 @@ class MEM_CNN_RIEDEL(nn.Module):
         else:
             self.order_embed = None
 
+        self.use_rank = False
+
         if not settings['scalable_circular']:
             self.order_weight = settings['order_weight']
         else:
@@ -387,6 +389,8 @@ class MEM_CNN_WIKI(MEM_CNN_RIEDEL):
             self.add_module('C_{}'.format(i), C)
         self.C = AttrProxy(self, 'C_')
 
+        self.use_rank = settings['use_rank']
+
         # relation embedding size is the same as MEM's output
         self.r_embed = nn.Parameter(torch.zeros(self.n_rel, self.query_dim))
         self.r_bias = nn.Parameter(torch.randn(self.n_rel), requires_grad=True)
@@ -497,11 +501,15 @@ class MEM_CNN_WIKI(MEM_CNN_RIEDEL):
 
             # maybe should consider limit the bag size of inputs
             # todo : need more serious thoughts
-            pdb.set_trace()
-            lookup_tensor = [each_input.rank for each_input in inputs[ix]]
-            lookup_tensor = torch.cuda.LongTensor(
-                list(range(memory.size(0)))[:self.bag_size] + \
-                (memory.size(0) - self.bag_size) * [0])
+            if self.use_rank:
+                # padding at first
+                lookup_tensor = torch.cuda.LongTensor(inputs[ix]['ranks'])
+                lookup_tensor += self.bag_size - lookup_tensor[-1] - 1
+                lookup_tensor = lookup_tensor.clamp(0, self.bag_size-1)
+            else:
+                lookup_tensor = torch.cuda.LongTensor(
+                    list(range(memory.size(0)))[:self.bag_size] + \
+                    (memory.size(0) - self.bag_size) * [0])
             # lookup_tensor = torch.tensor(lookup_tensor, =True)
 
             # order_embed : bag_size * order_embed_size

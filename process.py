@@ -293,6 +293,8 @@ def construct_dataset(file_path, labels, w_to_ix, train_test='train', en2id=None
         for en1, en2 in product(en1_list, en2_list):
             if tuple(sent) in mention_filter[(en1, en2)]:
                 continue
+                # for evaluate manual tagging.
+                # pass
 
             #   swap in case en1 and en2 's order may differ
             if labels[(en2, en1)]:
@@ -342,7 +344,9 @@ def construct_dataset(file_path, labels, w_to_ix, train_test='train', en2id=None
     # keep mentions sorted
     for key, item in mentions.items():
         item.sort()
-        rank = 0
+        # order embed padding is 0.
+        rank = 1
+        item[0].rank = rank
         for i in range(1, len(item)):
             if item[i].time == item[i-1].time:
                 item[i].rank = rank

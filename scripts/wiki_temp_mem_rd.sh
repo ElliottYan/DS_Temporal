@@ -5,7 +5,7 @@ cd ..
 BATCH_SIZE=32
 MODEL=MEM_CNN_WIKI
 MAX_HOPS=2
-DEVICE=2
+DEVICE=0
 VERSION=1
 N_EPOCHS=50
 QUERY_TYPE=RELATION
@@ -31,6 +31,7 @@ CUDA_VISIBLE_DEVICES=$DEVICE python trainer.py --model=$MODEL \
                                                 --problem=WIKI-TIME \
                                                 --lr=$lr \
                                                 --decay_ratio=$DECAY_RATIO \
-                                                --use_noise_and_clip
-#                                                --query_last
+                                                --use_noise_and_clip \
+                                                --use_rank \
+                                                --query_last
 

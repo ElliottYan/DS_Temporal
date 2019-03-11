@@ -4,8 +4,8 @@ cd ..
 
 BATCH_SIZE=32
 MODEL=MEM_CNN_WIKI
-MAX_HOPS=2
-DEVICE=2
+MAX_HOPS=1
+DEVICE=3
 VERSION=1
 N_EPOCHS=50
 QUERY_TYPE=RELATION
@@ -17,7 +17,7 @@ DECAY_RATIO=0.5
 lr=0.01
 DATA_ROOT=./data
 
-CUDA_VISIBLE_DEVICES=$DEVICE python trainer.py --model=$MODEL \
+CUDA_VISIBLE_DEVICES=$DEVICE python test.py --model=$MODEL \
                                                 --dataset_dir=$DATA_ROOT \
                                                 --cuda \
                                                 --position_embedding \
@@ -31,4 +31,6 @@ CUDA_VISIBLE_DEVICES=$DEVICE python trainer.py --model=$MODEL \
                                                 --lr=$lr \
                                                 --decay_ratio=$DECAY_RATIO \
                                                 --use_noise_and_clip \
-                                                --query_last
+                                                --model_path=/data/yanjianhao/nlp/ds/reproduce/model/1544414400_MEM_CNN_WIKI_best.model \
+                                                --manual_test
+#                                                --query_last

@@ -61,3 +61,11 @@ def compute_max_f1(precision, recall):
         max_f1 = max([max_f1, f1])
     return max_f1
 
+def compute_average_f1(precision, recall):
+    sum = 0
+    for k in range(len(precision)):
+        f1 = 2 * (precision[k] * recall[k]) / (precision[k] + recall[k])
+        sum += f1
+    return float(sum) / len(precision)
+
+
