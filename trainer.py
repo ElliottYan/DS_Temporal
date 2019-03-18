@@ -10,6 +10,7 @@ from tm_att import TM_ATT
 from word_rel_mem import Word_Rel_MEM
 from miml_conv import MIML_CONV, MIML_CONV_ATT, MIML_CONV_WORD_MEM_ATT
 from cnn_rel_mem import MIML_CONV_ATT_REL_MEM
+from transformer.transformer import TRANSFORMER_ENCODER
 
 import torch
 import torch.optim as optim
@@ -121,6 +122,11 @@ class Trainer():
             'scalable_circular' : config.scalable_circular,
             'query_last' : config.query_last,
             'use_rank' : config.use_rank,
+            'num_layers' : config.num_layers,
+            'd_model' : config.d_model,
+            'heads' : config.heads,
+            'd_ff' : config.d_ff,
+            'max_relative_positions' : config.max_relative_positions,
         }
 
         self.config = config
@@ -140,7 +146,9 @@ class Trainer():
                   'MIML_CONV_ATT': MIML_CONV_ATT,
                   'MIML_CONV_WORD_MEM_ATT': MIML_CONV_WORD_MEM_ATT,
                   'MIML_CONV_ATT_REL_MEM' : MIML_CONV_ATT_REL_MEM,
+                  'TRANSFORMER_ENCODER': TRANSFORMER_ENCODER,
                   }
+
         model = models[config.model]
         self.model = model(settings)
         # self.model_str = 'MEM_CNN_RIEDEL'
@@ -565,6 +573,13 @@ def parse_config():
     parser.add_argument("--optimizer", type=str, default='sgd')
     parser.add_argument("--conv_type", type=str, default='CNN')
     parser.add_argument("--model_path", type=str, default="")
+
+    # these are argument for model transformer
+    parser.add_argument("--num_layers", type=int, default=6)
+    parser.add_argument("--d_model", type=int, default=50)
+    parser.add_argument("--heads", type=int, default=8)
+    parser.add_argument("--d_ff", type=int, default=100)
+    parser.add_argument("--max_relative_positions", type=int, default=0)
 
     return parser.parse_args()
 
