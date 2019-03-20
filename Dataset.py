@@ -41,6 +41,7 @@ class Riedel_10(data.Dataset):
         self.en2id, self.en_vecs = self.read_in_en_vecs2()
         # relation position limit
         self.limit = 30
+        self.max_sent_len = 50
         self.prepare_data()
         self.keys = sorted(list(self.dict.keys()))
         # self.n_rel = len(self.rel2id)
@@ -132,6 +133,11 @@ class Riedel_10(data.Dataset):
             self.pos_idx[key] = (pos1, pos2)
             self.dict[key].append(con)
             self.bag2rel[key].add(rel)
+
+        # with open(os.path.join(self.root, 'tmp.txt'), 'w') as f:
+        #     for key, value in self.dict.items():
+        #         f.write(str(key) + ':' + len(value) + '\n')
+
 
     def collate_fn(self, data):
         return data
