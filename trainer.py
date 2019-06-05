@@ -1,4 +1,4 @@
-from Dataset import Riedel_10, WIKI_TIME
+from Dataset import *
 from cnn_one import CNN_ONE
 from cnn_att import CNN_ATT
 from mem_cnn import MEM_CNN_RIEDEL, MEM_CNN_WIKI
@@ -10,6 +10,7 @@ from tm_att import TM_ATT
 from word_rel_mem import Word_Rel_MEM
 from miml_conv import MIML_CONV, MIML_CONV_ATT, MIML_CONV_WORD_MEM_ATT
 from cnn_rel_mem import MIML_CONV_ATT_REL_MEM
+from bert_fine_tune import BERT_FINE_TUNE
 from transformer.transformer import TRANSFORMER_ENCODER
 
 import torch
@@ -17,30 +18,31 @@ import torch.optim as optim
 import torch.utils.data as data
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.autograd as ag
 import argparse
 import os
 import pdb
 import numpy as np
 import time
-from tqdm import tqdm
-from utils import precision_recall_compute_multi, one_hot, multi_hot_label, compute_max_f1, compute_average_f1
+import gc
+from tqdm import tqdm, trange
+from utils import precision_recall_compute_multi, one_hot, multi_hot_label, compute_max_f1, logging_existing_tensor
 
 torch.cuda.manual_seed(0)
 
 class Trainer():
     def __init__(self, config):
         root = config.dataset_dir
+        '''
         self.problem = config.problem
         if self.problem == 'NYT-10':
             print('Reading Training data!')
-            self.train_data = Riedel_10(root,
-                                        debug=config.debug,
-                                        use_whole_bag=config.use_whole_bag)
+            self.train_data = NYT_10(root,
+                                     debug=config.debug,
+                                     use_whole_bag=config.use_whole_bag)
             print('Reading Testing data!')
-            self.test_data = Riedel_10(root, train_test='test',
-                                       debug=config.debug,
-                                       use_whole_bag=config.use_whole_bag)
+            self.test_data = NYT_10(root, train_test='test',
+                                    debug=config.debug,
+                                    use_whole_bag=config.use_whole_bag)
         else:
             print('Reading Training data!')
             self.train_data = WIKI_TIME(root,
@@ -54,6 +56,16 @@ class Trainer():
                 print("Reading Manual Test data!")
                 self.manual_test_data = WIKI_TIME(root, train_test='manual_test',
                                                   debug=config.debug)
+        '''
+        self.problem = config.problem.replace('-', '_')
+        print('Reading Training Data!')
+        self.train_data = globals()[self.problem](root, train_test='train',
+                                                  debug=config.debug,
+                                                  use_whole_bag=config.use_whole_bag)
+        print('Reading Testing Data!')
+        self.test_data = globals()[self.problem](root, train_test='test',
+                                                 debug=config.debug,
+                                                 use_whole_bag=config.use_whole_bag)
 
         self.noise_and_clip = config.use_noise_and_clip
 
@@ -83,7 +95,6 @@ class Trainer():
                                                shuffle=False,
                                                collate_fn=collate_fn)
         # print('Finish reading in test data!')
-
 
         settings = {
             "use_cuda": config.cuda,
@@ -127,6 +138,7 @@ class Trainer():
             'heads' : config.heads,
             'd_ff' : config.d_ff,
             'max_relative_positions' : config.max_relative_positions,
+            'use_pretrain_embedding' : not config.random_embedding,
         }
 
         self.config = config
@@ -147,14 +159,16 @@ class Trainer():
                   'MIML_CONV_WORD_MEM_ATT': MIML_CONV_WORD_MEM_ATT,
                   'MIML_CONV_ATT_REL_MEM' : MIML_CONV_ATT_REL_MEM,
                   'TRANSFORMER_ENCODER': TRANSFORMER_ENCODER,
+                  'BERT_FINE_TUNE': BERT_FINE_TUNE,
                   }
 
         model = models[config.model]
         self.model = model(settings)
+
         # self.model_str = 'MEM_CNN_RIEDEL'
         self.model_str = str(self.model.__class__.__name__)
 
-        if config.use_pretrain:
+        if config.load_pretrain_model:
             # load some of the pretrained weights
             if config.model_path:
                 pre_model_path = config.model_path
@@ -169,14 +183,20 @@ class Trainer():
 
         if torch.cuda.is_available():
             self.model = self.model.cuda()
+        # data parallel
+        # todo : not working now..
+        # self.model = nn.DataParallel(self.model)
+
         self.loss_func = nn.NLLLoss(size_average=False)
         # get a easier way to do this.
         self.binary_loss_models = {'Word_Rel_MEM',
                                    'MIML_CONV',
                                    'MIML_CONV_ATT',
                                    'MIML_CONV_WORD_MEM_ATT',
-                                   'MIML_CONV_ATT_REL_MEM'}
+                                   'MIML_CONV_ATT_REL_MEM',
+                                    }
         if self.model_str in self.binary_loss_models:
+        # if config.use_whole_bag:
             self.loss_func = self.binary_loss
 
         self.model_parameters = [item for item in self.model.parameters() if item.requires_grad]
@@ -186,6 +206,7 @@ class Trainer():
             'adadelta': optim.Adadelta(iter(self.model_parameters), lr=config.lr),
         }
         self.opt = optimizer[self.config.optimizer]
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.opt, 'max', patience=3)
 
         self.start_epoch = 0
         self.max_epochs = config.max_epochs
@@ -229,37 +250,43 @@ class Trainer():
             print('Epoch {}:'.format(i))
             acc_loss = 0
             batch_ix = 0
-            pbar = tqdm(self.train_loader)
-            for item in pbar:
-                # somehow... input is wrapped with a list
-                out = self.model(item)
-                self.opt.zero_grad()
-                # in training, there's only one label for each bag
-                labels = [sample['label'] for sample in item]
-                if self.model_str == 'TM_ATT':
-                    loss = self.compute_loss(out, labels, epoch=i)
-                    out = out[0]
-                else:
-                    loss = self.compute_loss(out, labels)
-                loss.backward()
-                if self.noise_and_clip:
-                    # eta = 0.01
-                    # disable noise gradien t
-                    eta = 0.0
-                    tau = 0.55
-                    noise_stddev = eta / (1 + i) * tau
-                    self._gradient_noise_and_clip(self.model.parameters(),
-                                                  noise_stddev=noise_stddev, max_clip=config.max_clip)
-                self._decay_learning_rate(self.opt, epoch=i)
-                self.opt.step()
-                # acc_loss += loss.data.item()
+            with trange(len(self.train_loader)) as t:
+                for i_batch, item in enumerate(self.train_loader):
+                    # if i_batch >= 1428:
+                    #     pdb.set_trace()
+                    # somehow... input is wrapped with a list
+                    out = self.model(item)
+                    # for debug
+                    # continue
 
-                # if (batch_ix + 1) % 50 == 0:
-                #     print('Batch {}:'.format(batch_ix))
-                #     print('Loss {}'.format(str(acc_loss / 50)))
-                #     acc_loss = 0
-                pbar.set_description("Loss: {}".format(loss))
-                batch_ix += 1
+                    # pdb.set_trace()
+                    self.opt.zero_grad()
+                    # in training, there's only one label for each bag
+                    pdb.set_trace()
+                    labels = [sample['label'] for sample in item]
+                    if self.model_str == 'TM_ATT':
+                        loss = self.compute_loss(out, labels, epoch=i)
+                        #out = out.item()
+                    else:
+                        loss = self.compute_loss(out, labels)
+
+                    loss.backward()
+
+                    if self.noise_and_clip:
+                        # eta = 0.01
+                        # disable noise gradien t
+                        eta = 0.0
+                        tau = 0.55
+                        noise_stddev = eta / (1 + i) * tau
+                        self._gradient_noise_and_clip(self.model.parameters(),
+                                                      noise_stddev=noise_stddev, max_clip=config.max_clip)
+                    # self._decay_learning_rate(self.opt, epoch=i)
+                    self.opt.step()
+
+                    t.set_postfix_str("Loss: {}".format(loss))
+                    t.update()
+
+                    batch_ix += 1
 
             if self.problem == 'WIKI-TIME' and self.model_str == 'MEM_CNN_WIKI':
                 f1 = self.evaluate_bag(epoch=i)
@@ -273,6 +300,7 @@ class Trainer():
                 max_f1 = f1
                 model_path = os.path.join(model_root, '{}_{}_best.model'.format(self.timestamp, self.model_str, str(self.max_epochs)))
                 torch.save(self.model.state_dict(), model_path)
+            self.scheduler.step(f1)
 
 
     def evaluate(self, epoch=None):
@@ -510,6 +538,9 @@ class Trainer():
 
         return loss
 
+
+
+
 class FocalLoss(nn.Module):
 
     def __init__(self, gamma=0, eps=1e-7, alpha=1):
@@ -565,7 +596,8 @@ def parse_config():
     parser.add_argument('--use_whole_bag', action='store_true')
     parser.add_argument('--use_word_mem', action='store_true')
     parser.add_argument('--tri_attention', action='store_true')
-    parser.add_argument('--use_pretrain', action='store_true')
+    parser.add_argument('--load_pretrain_model', action='store_true')
+    parser.add_argument('--random_embedding', action='store_true')
     parser.add_argument('--manual_test', action='store_true')
     parser.add_argument('--scalable_circular', action='store_true')
     parser.add_argument('--query_last', action='store_true')

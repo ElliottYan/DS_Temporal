@@ -81,7 +81,7 @@ class CNN_ONE(nn.Module):
                     feature *= 0.5
                 feature += self.r_bias
                 features.append(feature)
-            features = torch.cat(features, dim=0)
+            features = torch.cat(features, dim=0) # N_sents * n_rel
             features = self.pred_sm(features)
             if self.training:
                 features = features[torch.max(features, dim=0)[1][label]]

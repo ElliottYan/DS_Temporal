@@ -8,19 +8,20 @@ import random
 import pickle
 import process
 # import attacker
-from collections import defaultdict
+from collections import defaultdict, Counter
+from itertools import chain
 import numpy as np
 import struct
 import torch
-# from process import construct_dataset, create_labels
-# from character_process import strToList, n_letters
+import pytorch_pretrained_bert as ppb
 from sklearn.preprocessing import normalize
-from structures import time_signature, Mention
 
 random.seed(10)
 
+import logging
+logging.basicConfig(level=logging.INFO)
 
-class Riedel_10(data.Dataset):
+class NYT_10(data.Dataset):
     def __init__(self, root, train_test='train', debug=False, use_whole_bag=True):
         # filenames = ['train.txt', 'test.txt']
         self.root = root
@@ -41,7 +42,8 @@ class Riedel_10(data.Dataset):
         self.en2id, self.en_vecs = self.read_in_en_vecs2()
         # relation position limit
         self.limit = 30
-        self.max_sent_len = 50
+        self.max_sent_len = 100
+        self.max_bag_size = 200
         self.prepare_data()
         self.keys = sorted(list(self.dict.keys()))
         # self.n_rel = len(self.rel2id)
@@ -113,6 +115,10 @@ class Riedel_10(data.Dataset):
                 if word == e2:
                     pos2 = ix
 
+            # filter the sentence that are too long.
+            if len(sent) > self.max_sent_len and self.mode == 'train':
+                continue
+
             sent_len = len(sentence)
             con = []
             for j in range(sent_len):
@@ -134,10 +140,33 @@ class Riedel_10(data.Dataset):
             self.dict[key].append(con)
             self.bag2rel[key].add(rel)
 
-        # with open(os.path.join(self.root, 'tmp.txt'), 'w') as f:
-        #     for key, value in self.dict.items():
-        #         f.write(str(key) + ':' + len(value) + '\n')
+        # collect the data counter for each key item.
+        with open(os.path.join(self.root, 'tmp_' + self.mode + '.txt'), 'w') as f:
+            for key, value in self.dict.items():
+                f.write(str(key) + ':' + str(len(value)) + '\n')
 
+        with open(os.path.join(self.root, 'tmp_sent_' + self.mode + '.txt'), 'w') as f:
+            c = Counter()
+            c.update([len(it) for it in chain(self.dict.values())])
+            for key, value in c.items():
+                f.write(str(key) + ':' + str(value) + '\n')
+
+        # only filter the data in training.
+        if self.mode == 'train':
+            self.filter_bag_size()
+
+    # filter bags that are too big.
+    def filter_bag_size(self):
+        pop_keys = []
+        for key in self.dict.keys():
+            dict_val = self.dict[key]
+            if len(dict_val) > self.max_bag_size:
+                pop_keys.append(key)
+        # dict size cannot be changed during iteration.
+        for key in pop_keys:
+            self.dict.pop(key)
+            self.pos_idx.pop(key)
+            self.bag2rel.pop(key)
 
     def collate_fn(self, data):
         return data
@@ -168,7 +197,6 @@ class Riedel_10(data.Dataset):
         # ret['pos2_idx'] = self.pos_idx[key][1]
         # return self.dict[key]
         return ret
-    # def collate_fn(self):
 
     def read_in_en_vecs(self):
         vecs = np.load(self.en_vec_path)
@@ -197,7 +225,7 @@ class Riedel_10(data.Dataset):
 
 
 class WIKI_TIME(data.Dataset):
-    def __init__(self, root, train_test='train', transform=None, position_embed=True, debug=False):
+    def __init__(self, root, train_test='train', transform=None, position_embed=True, debug=False, **kwargs):
         if train_test == 'train':
             file_name = 'mini_train_temporal_v2.txt'
         elif train_test == "test":
@@ -384,6 +412,81 @@ class WIKI_TIME(data.Dataset):
         self.key_list = list(self.dict.keys())
 
         return
+
+
+class BERT_NYT_10(NYT_10):
+    def __init__(self, root, train_test='train', debug=False, use_whole_bag=True):
+        self.vocab_file = os.path.join(root, 'pretrained_weights/bert-base-uncased/bert-base-uncased-vocab.txt')
+        super(BERT_NYT_10, self).__init__(root, train_test=train_test, debug=debug, use_whole_bag=use_whole_bag)
+
+    def prepare_data(self):
+        # create a bert tokenizer
+        import logging
+        logging.basicConfig(level=logging.INFO)
+
+        self.tokenizer = ppb.BertTokenizer.from_pretrained(self.vocab_file,
+                                                           do_lower_case=True)
+                                                           # do_basic_tokenize=True)
+        self.dict = defaultdict(list)
+        # pos1_max, pos1_min = 0, 0
+        # pos2_max, pos2_min = 0, 0
+        self.bag2rel = defaultdict(set)
+        self.pos_idx = dict()
+        with open(os.path.join(self.root, self.filename), 'r') as f:
+            lines = f.readlines()
+        for line in lines:
+            pos1, pos2 = 0, 0
+            tmp = line.strip().split()
+            id1, id2, e1, e2, rel = tmp[:5]
+            rel = self.rel2id[rel]
+            # sentence = list(map(lambda x: self.w2id[x], tmp[5:-1]))
+            sentence = tmp[5:-1]
+
+            # filter the sentence that are too long.
+            if len(sentence) > self.max_sent_len and self.mode == 'train':
+                continue
+
+            line = '[CLS] ' + " ".join(sentence)
+            tokenized_text = self.tokenizer.tokenize(line)
+            indexed_tokens = self.tokenizer.convert_tokens_to_ids(tokenized_text)
+            # just use for testing.
+            segments_ids = [0] * len(indexed_tokens)
+            con = [indexed_tokens, segments_ids]
+
+            use_whole_bag = self.use_whole_bag
+            if self.mode == 'train' and not use_whole_bag:
+                key = (e1, e2, rel)
+            else:
+                key = (e1, e2)
+            self.pos_idx[key] = (pos1, pos2)
+            self.dict[key].append(con)
+            self.bag2rel[key].add(rel)
+
+        # only filter the data in training.
+        if self.mode == 'train':
+            self.filter_bag_size()
+
+    def __getitem__(self, item):
+        key = self.keys[item]
+        bag = []
+
+        # move 'to device' part into model.
+        for item in self.dict[key]:
+            bag.append(torch.cuda.LongTensor(item))
+
+        target = self.bag2rel[key]
+        # target in shape [1]
+        target = torch.cuda.LongTensor(list(target))
+
+        ret = {}
+        ret['bag'] = bag
+        ret['label'] = target
+        return ret
+
+    def collate_fn(self, data):
+        return data
+
+
 
 if __name__ == '__main__':
     wiki = WIKI_TIME('./data', train_test='test')

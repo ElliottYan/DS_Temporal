@@ -1,6 +1,7 @@
 import numpy as np
 import pdb
 import torch
+import gc
 
 # create one-hot
 # not needed when labels are already one-hot
@@ -61,6 +62,7 @@ def compute_max_f1(precision, recall):
         max_f1 = max([max_f1, f1])
     return max_f1
 
+
 def compute_average_f1(precision, recall):
     sum = 0
     for k in range(len(precision)):
@@ -69,3 +71,13 @@ def compute_average_f1(precision, recall):
     return float(sum) / len(precision)
 
 
+def logging_existing_tensor():
+    ret = []
+    for obj in gc.get_objects():
+        try:
+            if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
+                print(type(obj), obj.size())
+                ret.append(obj)
+        except:
+            pass
+    return ret

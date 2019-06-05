@@ -5,10 +5,13 @@ Implementation of "Attention is All You Need"
 import torch
 import torch.nn as nn
 import numpy as np
+import math
 import pdb
 
 from transformer.encoders.transformer_encoder import TransformerEncoder
 from transformer.modules import Embeddings
+
+from utils import logging_existing_tensor
 
 
 class TRANSFORMER_ENCODER(nn.Module):
@@ -71,10 +74,13 @@ class TRANSFORMER_ENCODER(nn.Module):
             feat_vocab_sizes=num_feat_embeddings,
         )
 
-        use_pretrain = True
+        use_pretrain = settings['use_pretrain_embedding']
         # load pretrained vectors.
         if use_pretrain:
-            pretrained = create_embedding_matrix(settings['word_embeds'], extra_tokens)
+            word_embeds = settings['word_embeds']
+            if word_embeds.shape[-1] != d_model:
+                raise ValueError("When use pretrain embedding, d_model must be the same with pretrained embedding dim.")
+            pretrained = create_embedding_matrix(word_embeds, extra_tokens)
             self.emb.word_lut.weight.data.copy_(pretrained)
 
         self.transformer = TransformerEncoder(num_layers,
@@ -96,17 +102,25 @@ class TRANSFORMER_ENCODER(nn.Module):
         self.atten_sm = nn.Softmax(dim=-1)
         self.dropout = nn.Dropout(settings['dropout_p'])
 
+        # self.cnt = 0
+
     def forward(self, inputs):
+        # logging_existing_tensor()
+
+        bz = len(inputs)
         labels = [item['label'] for item in inputs]
         bag_sizes = [len(bag['bag']) for bag in inputs]
         sents = []
         sents_length = []
         # todo : for now we just use word embeddings and ignore the position feature.
+        # print('process sentences.')
         for bag in inputs:
             for sent in bag['bag']:
-                tmp_sent = sent[:, 0]
-                sents.append(tmp_sent)
-                sents_length.append(len(tmp_sent))
+                # tmp_sent = sent[:, 0]
+                # sents.append(tmp_sent)
+                # sents_length.append(len(tmp_sent))
+                sents.append(sent[:, 0])
+                sents_length.append(len(sent[:, 0]))
 
         # padding.
         sents = nn.utils.rnn.pad_sequence(sents, padding_value=self.emb.word_padding_idx, batch_first=False).unsqueeze(-1)
@@ -119,28 +133,60 @@ class TRANSFORMER_ENCODER(nn.Module):
 
         sents_length = torch.LongTensor(sents_length).to(self.device)
 
-        # emb, out, lengths
         # out : L * N_sents * D
+        '''
         out = self.transformer(sents, lengths=sents_length)
-        out = out[1].transpose(0, 1)
+        out = out[1]
+        '''
+        # split batch to avoid oom.
+        # this is used when oom happens.
+        num_batch = math.ceil(sents.shape[1] / bz)
+        out_list = []
+        for i in range(num_batch):
+            out_list.append(self.transformer(sents[:, i*bz: (i+1)*bz], lengths=sents_length[i*bz: (i+1)*bz]))
+        out = torch.cat([item[1] for item in out_list], dim=1)
+
+
+        # emb, out, lengths
+        # takes the output at cls token.
+        out = out[0]     # N_sents * D
+
         start = 0
         features = []
         for item in bag_sizes:
-            features.append(out[start:start+item])
+            features.append(out[start:start + item].contiguous().reshape(-1, self.feature_size))
             start += item
 
+        # print('fusion')
         s = self.fusion(features)
 
-        bz = len(labels)
+        # print('merge')
         if self.training:
-            s = s[torch.arange(0, bz).long().cuda(), labels]
+            idx = []
+            for cnt, item in enumerate(labels):
+                idx += [cnt] * len(item)
+            # B' * n_rel * D
+            tmp = s[torch.tensor(idx, device=self.device, requires_grad=False).long()]
+            # B' * D
+            s = tmp[torch.arange(0, tmp.size(0), device=self.device).long(), torch.cat(labels, dim=0)]
             # score is the same, but normalize over different set!
             scores = torch.matmul(s, self.r_embed.t()) + self.r_bias
             pred = self.pred_sm(scores)
         else:
             scores = torch.matmul(s, self.r_embed.t()) + self.r_bias
             pred = self.pred_sm(scores.view(-1, self.n_rel)).view(bz, self.n_rel, self.n_rel).max(1)[0]
+
         return pred
+
+    '''
+    def forward(self, inputs):
+        outs = []
+        for bag in inputs:
+            for sent in bag['bag']:
+                out = self.transformer(sent.unsqueeze(-1))
+                outs.append(out)
+        return outs
+    '''
 
     def fusion(self, features):
         ret = []

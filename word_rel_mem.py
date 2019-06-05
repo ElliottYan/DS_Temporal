@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.utils.data as data
 import torch.nn.functional as F
 from mem_cnn import AttrProxy
-from Dataset import Riedel_10, WIKI_TIME
+from Dataset import NYT_10, WIKI_TIME
 import pdb
 import math
 from cnn import CNN
@@ -389,7 +389,7 @@ def split_query_and_memory(w2v, sent):
 
 if __name__ == "__main__":
     root = "./origin_data/"
-    train_data = Riedel_10(root)
+    train_data = NYT_10(root)
     collate_fn = train_data.collate_fn
     train_loader = data.DataLoader(train_data,
                                         batch_size=32,
