@@ -1,10 +1,13 @@
+#Intro
 The repository for NAACL 2019 paper "Relation Extraction with Temporal Reasoning Based on Memory Augmented Distant Supervision".
+
+We use torch == 0.4 for all the experiments. Also, 
 
 1. TempMEM used to be called MemCNN. Most of the experiment is done by mem_cnn and mem_pcnn. 
 
-Usage: examples for running experiments can be found in scripts. Due to my experience,  
+Usage: examples for running experiments can be found in scripts. Due to my experience, best results come from the "wiki_temp_mem_pe_epoch_70_lr_5e-3.sh" scripts.
 
-Best results come from the wiki_temp_mem_pe_epoch_70_query_all scripts.
+Also, I'm still constantly updating the code, if you find any problem please raise an issue. Thanks! 
 
 #Citation
 
