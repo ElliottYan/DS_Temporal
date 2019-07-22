@@ -10,8 +10,6 @@ from tm_att import TM_ATT
 from word_rel_mem import Word_Rel_MEM
 from miml_conv import MIML_CONV, MIML_CONV_ATT, MIML_CONV_WORD_MEM_ATT
 from cnn_rel_mem import MIML_CONV_ATT_REL_MEM
-from bert_fine_tune import BERT_FINE_TUNE
-from transformer.transformer import TRANSFORMER_ENCODER
 
 import torch
 import torch.optim as optim
@@ -61,16 +59,19 @@ class Trainer():
         print('Reading Training Data!')
         self.train_data = globals()[self.problem](root, train_test='train',
                                                   debug=config.debug,
-                                                  use_whole_bag=config.use_whole_bag)
+                                                  use_whole_bag=config.use_whole_bag,
+                                                  construct=config.construct_wiki)
         print('Reading Testing Data!')
         self.test_data = globals()[self.problem](root, train_test='test',
                                                  debug=config.debug,
-                                                 use_whole_bag=config.use_whole_bag)
+                                                 use_whole_bag=config.use_whole_bag,
+                                                 construct=config.construct_wiki)
 
         self.noise_and_clip = config.use_noise_and_clip
 
         self.batch_size = config.batch_size
 
+        # pdb.set_trace()
         if config.query_last or (config.problem == 'WIKI-TIME' and config.model != 'MEM_CNN_WIKI'):
             collate_fn = self.train_data.collate_bag_fn
         else:
@@ -158,8 +159,6 @@ class Trainer():
                   'MIML_CONV_ATT': MIML_CONV_ATT,
                   'MIML_CONV_WORD_MEM_ATT': MIML_CONV_WORD_MEM_ATT,
                   'MIML_CONV_ATT_REL_MEM' : MIML_CONV_ATT_REL_MEM,
-                  'TRANSFORMER_ENCODER': TRANSFORMER_ENCODER,
-                  'BERT_FINE_TUNE': BERT_FINE_TUNE,
                   }
 
         model = models[config.model]
@@ -221,7 +220,8 @@ class Trainer():
 
     def compute_loss(self, out, labels, epoch=0):
         # labels is list
-        if self.problem == 'WIKI-TIME' and self.model_str == 'MEM_CNN_WIKI':
+        # pdb.set_trace()
+        if self.problem == 'WIKI_TIME' and self.model_str == 'MEM_CNN_WIKI':
             labels = torch.cat(labels, dim=0)
             out = torch.cat(out, dim=0)
             loss = self.loss_func(out, labels)
@@ -262,7 +262,7 @@ class Trainer():
                     # pdb.set_trace()
                     self.opt.zero_grad()
                     # in training, there's only one label for each bag
-                    pdb.set_trace()
+                    # pdb.set_trace()
                     labels = [sample['label'] for sample in item]
                     if self.model_str == 'TM_ATT':
                         loss = self.compute_loss(out, labels, epoch=i)
@@ -288,7 +288,7 @@ class Trainer():
 
                     batch_ix += 1
 
-            if self.problem == 'WIKI-TIME' and self.model_str == 'MEM_CNN_WIKI':
+            if self.problem == 'WIKI_TIME' and self.model_str == 'MEM_CNN_WIKI':
                 f1 = self.evaluate_bag(epoch=i)
                 all_f1 = self.evaluate_all(epoch=i)
             elif self.model_str in self.binary_loss_models:
@@ -600,6 +600,8 @@ def parse_config():
     parser.add_argument('--random_embedding', action='store_true')
     parser.add_argument('--manual_test', action='store_true')
     parser.add_argument('--scalable_circular', action='store_true')
+    parser.add_argument('--construct_wiki', action='store_true')
+
     parser.add_argument('--query_last', action='store_true')
     parser.add_argument('--use_rank', action='store_true')
     parser.add_argument("--optimizer", type=str, default='sgd')

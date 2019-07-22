@@ -10,6 +10,14 @@
           <option name="port" value="1302" />
         </fileTransfer>
       </webServer>
+      <webServer id="43d0df6a-cd93-4f0d-9e19-d01795e46ea8" name="1302" url="http://101.6.96.160">
+        <fileTransfer host="101.6.96.160" port="1302" rootFolder="/data/yanjianhao" accessType="SFTP">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" shareSSLContext="true" />
+          </advancedOptions>
+          <option name="port" value="1302" />
+        </fileTransfer>
+      </webServer>
     </option>
   </component>
 </project>

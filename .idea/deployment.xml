@@ -1,7 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="1305">
+  <component name="PublishConfigData" autoUpload="Always" serverName="1302">
     <serverData>
+      <paths name="1302">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/nlp/DS_Temporal" local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
       <paths name="1305">
         <serverdata>
           <mappings>
