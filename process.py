@@ -214,7 +214,6 @@ def create_labels():
     return labels
     # print(label for label in labels[:10])
 
-
 def unit_test(labels):
     # This is unit test
     label = labels[('Euro', 'Estonia')]
@@ -232,7 +231,7 @@ def unit_test(labels):
     print(check_relation(label, tmp2))
 
 
-def construct_dataset(file_path, labels, w_to_ix, train_test='train', en2id=None):
+def construct_dataset(file_path, labels, w_to_ix, train_test='train', en2id=None, save_wiki_time_path=''):
     # import reverse synonym
     # here we got doing the mapping in dataset construction phase
     with open('./origin_data/r_synonym.dat', 'rb') as f:
@@ -260,7 +259,7 @@ def construct_dataset(file_path, labels, w_to_ix, train_test='train', en2id=None
     en2labels = defaultdict(list)
     mention_filter = defaultdict(set)
 
-    with open(file_path, 'r') as f:
+    with open(file_path, 'r', encoding='utf8') as f:
         lines = f.readlines()
 
     debug = False
@@ -288,8 +287,6 @@ def construct_dataset(file_path, labels, w_to_ix, train_test='train', en2id=None
         en1_list = [en1,]
         en2_list = [en2,]
 
-        # outputs.append(str([en1, en2]) + " : \n")
-
         for en1, en2 in product(en1_list, en2_list):
             if tuple(sent) in mention_filter[(en1, en2)]:
                 continue
@@ -303,6 +300,9 @@ def construct_dataset(file_path, labels, w_to_ix, train_test='train', en2id=None
                 # pdb.set_trace()
                 continue
                 # pass
+            if en1 == '' or en2 == '':
+                continue
+
             en2label = labels[(en1, en2)]
             outputs[(en1, en2)] = []
             tmp = time_signature("-".join([year, month, day]), node_type='mention')
@@ -389,10 +389,86 @@ def construct_dataset(file_path, labels, w_to_ix, train_test='train', en2id=None
 
     with open("./origin_data/mentions_" + train_test + ".dat", 'wb') as fout:
         pickle.dump(mentions, fout)
-
+    if save_wiki_time_path:
+        save_wiki_time(mentions, save_wiki_time_path)
     print('Finish save intermediate results! ')
-    # pdb.set_trace()
     return mentions, rel_to_ix, natural, en2labels
+
+def save_wiki_time(mentions:dict, file_path:str):
+    print('Save to file {}.'.format(file_path))
+    with open(file_path, 'w', encoding='utf8') as f:
+        f.write('\t'.join(['id', 'en1', 'en2', 'relation', 'time', 'pos1', 'pos2', 'sent']) + '\n')
+        for key, val in mentions.items():
+            if val:
+                f.write('\t'.join(val[0].en_pair_str) + '\n')
+            else:
+                continue
+            # remove the duplicates and just keep the first one.
+            sents = set()
+            for id, mention in enumerate(val):
+                sent = " ".join(mention.org_sent)
+                if sent not in sents:
+                    f.write('\t'.join([str(id), '\t'.join(val[0].en_pair_str), mention.tag_name, str(mention.pos[0]), str(mention.pos[1]), mention.time.time_str, sent]) + '\n')
+            f.write('\n')
+
+def load_wiki_time(file_path:str, w2v, en2id):
+    print('Loading WIKI-TIME from {}.'.format(file_path))
+    rel2ix_path = "./origin_data/rel2ix_temporal.txt"
+    rel_to_ix = defaultdict(set_default)
+    with open(rel2ix_path, 'r', encoding='utf8') as f:
+        lines = f.readlines()
+    for line in lines:
+        tmp = line.split()
+        rel, ix = "_".join(tmp[:-1]), int(tmp[-1])
+        rel_to_ix[rel] = ix
+    # rel_to_ix['PAD'] = len(rel_to_ix)
+    print('Reading rel_to_ix done!')
+
+    mentions = {}
+    with open(file_path, 'r', encoding='utf8') as f:
+        # the first line contains the headers.
+        line = f.readline()
+        line = f.readline()
+        tmp = []
+        start = 0
+        while line and line != '':
+            # first line in a mention set.
+            if start == 0:
+                try:
+                    en1, en2 = line.strip().split('\t')
+                except:
+                    pdb.set_trace()
+                start = 1
+
+            # end of a mention set.
+            elif line == '\n' and start == 1:
+                # convert entity str to entity id.
+                if en2id:
+                    if en1 not in en2id.keys():
+                        en2id[en1] = len(en2id)
+                    elif en2 not in en2id.keys():
+                        en2id[en2] = len(en2id)
+                    en1, en2 = en2id[en1], en2id[en2]
+                mentions[(en1, en2)] = tmp
+                tmp = []
+                start = 0
+
+            # for other lines.
+            else:
+                # ['id', 'en1', 'en2', 'relation', 'time', 'pos1', 'pos2', 'sent']
+                line_splits = line.strip().split('\t', maxsplit=7)
+                id, _, _, tag_name, pos1, pos2, time_str, org_sent = line_splits
+                sent = [w2v[word] if w2v[word] else w2v['UNK'] for word in org_sent]
+                tag = rel_to_ix[tag_name]
+                en_pair_str = (en1, en2)
+                mention = Mention(sent, en_pair_str=en_pair_str, org_sent=org_sent, tag=tag, tag_name=tag_name, pos1=int(pos1),
+                        pos2=int(pos2), time=tmp)
+                tmp.append(mention)
+
+            line = f.readline()
+
+    return mentions, rel_to_ix, None, None
+
 
 
 def Normalization(s):
@@ -590,7 +666,7 @@ def main():
 def read_in_vec(path):
     D = 50
     w_to_ix = defaultdict(set_default)
-    with open(path, 'r')as f:
+    with open(path, 'r', encoding='utf8')as f:
         lines = f.readlines()
     vecs = []
     for ix, line in enumerate(lines[1:]):

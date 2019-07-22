@@ -287,7 +287,6 @@ class MEM_CNN_RIEDEL(nn.Module):
             ret.append(self.M(item))
         return ret
 
-
     # this is for riedel-10 dataset
     def _predict_bag(self, mem_bags, queries, labels=None):
         bz = len(labels)
@@ -437,7 +436,6 @@ class MEM_CNN_WIKI(MEM_CNN_RIEDEL):
                 query_r = query_r.reshape(1, -1)
 
             # maybe should consider limit the bag size of inputs
-            # todo : need more serious thoughts
             lookup_tensor = torch.LongTensor(
                 list(range(memory.size(0)))[-self.bag_size:] + \
                 (memory.size(0) - self.bag_size) * [0], requires_grad=True)
@@ -473,7 +471,6 @@ class MEM_CNN_WIKI(MEM_CNN_RIEDEL):
 
                 # update its query_r
                 query = query + o_k
-            # todo: use attention cnn ways to embed relation.
             # can substract the query vector out to find which is our target.
             # query -= query_r
             if self.debug:
@@ -500,7 +497,6 @@ class MEM_CNN_WIKI(MEM_CNN_RIEDEL):
             query = query_r
 
             # maybe should consider limit the bag size of inputs
-            # todo : need more serious thoughts
             if self.use_rank:
                 # padding at first
                 lookup_tensor = torch.cuda.LongTensor(inputs[ix]['ranks'])

@@ -13,7 +13,6 @@ from itertools import chain
 import numpy as np
 import struct
 import torch
-import pytorch_pretrained_bert as ppb
 from sklearn.preprocessing import normalize
 
 random.seed(10)
@@ -22,7 +21,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 class NYT_10(data.Dataset):
-    def __init__(self, root, train_test='train', debug=False, use_whole_bag=True):
+    def __init__(self, root, train_test='train', debug=False, use_whole_bag=True, **kwargs):
         # filenames = ['train.txt', 'test.txt']
         self.root = root
         self.mode = train_test
@@ -225,7 +224,8 @@ class NYT_10(data.Dataset):
 
 
 class WIKI_TIME(data.Dataset):
-    def __init__(self, root, train_test='train', transform=None, position_embed=True, debug=False, **kwargs):
+    def __init__(self, root, train_test='train', transform=None, position_embed=True, debug=False, construct=False, **kwargs):
+        # construct file name
         if train_test == 'train':
             file_name = 'mini_train_temporal_v2.txt'
         elif train_test == "test":
@@ -233,6 +233,9 @@ class WIKI_TIME(data.Dataset):
         elif train_test == "manual_test":
             file_name = 'mini_test_temporal_v2.txt'
             manual_file_name = 'manual_test/labeling_task/dic.dat'
+
+        save_wiki_time_path = './origin_data/wiki_time_{}.txt'.format(train_test)
+
         vec_name = 'glove.txt'
         self.w_to_ix, self.w2v = process.read_in_vec(os.path.join(root, vec_name))
         # length of en2id > en_vecs
@@ -241,14 +244,23 @@ class WIKI_TIME(data.Dataset):
         assert len(self.w_to_ix) == self.w2v.shape[0]
         # dict : [(en1_poss, en2_pos, [word,]),]
 
-        self.labels = process.create_labels()
 
-        self.dict, self.rel_to_ix, self.natural, self.en2labels = process.construct_dataset(os.path.join(root,
+        # construct = True
+        if construct:
+            self.labels = process.create_labels()
+            self.dict, self.rel_to_ix, self.natural, self.en2labels = process.construct_dataset(os.path.join(root,
                                                                                                          file_name),
                                                                                             self.labels,
                                                                                             self.w_to_ix,
                                                                                             train_test=train_test,
-                                                                                            en2id=self.en2id)
+                                                                                            en2id=self.en2id,
+                                                                                            save_wiki_time_path=save_wiki_time_path)
+
+        else:
+            self.dict, self.rel_to_ix, self.natural, self.en2labels = process.load_wiki_time(save_wiki_time_path,
+                                                                                             self.w_to_ix,
+                                                                                             en2id=self.en2id)
+
         # the length of en2id could be update in func : construct_dataset
         self.n_entity = len(self.en2id)
         self.key_list = list(self.dict.keys())
@@ -329,6 +341,7 @@ class WIKI_TIME(data.Dataset):
         return ret, labels, ranks
 
     def generate_manual_test_case(self, output_file, generate_length=200):
+        # this function have to run construct dataset first. Or en2labels will be None.
         ids = list(range(len(self.key_list)))
         random.shuffle(ids)
         ids = ids[:generate_length]
@@ -413,89 +426,15 @@ class WIKI_TIME(data.Dataset):
 
         return
 
-
-class BERT_NYT_10(NYT_10):
-    def __init__(self, root, train_test='train', debug=False, use_whole_bag=True):
-        self.vocab_file = os.path.join(root, 'pretrained_weights/bert-base-uncased/bert-base-uncased-vocab.txt')
-        super(BERT_NYT_10, self).__init__(root, train_test=train_test, debug=debug, use_whole_bag=use_whole_bag)
-
-    def prepare_data(self):
-        # create a bert tokenizer
-        import logging
-        logging.basicConfig(level=logging.INFO)
-
-        self.tokenizer = ppb.BertTokenizer.from_pretrained(self.vocab_file,
-                                                           do_lower_case=True)
-                                                           # do_basic_tokenize=True)
-        self.dict = defaultdict(list)
-        # pos1_max, pos1_min = 0, 0
-        # pos2_max, pos2_min = 0, 0
-        self.bag2rel = defaultdict(set)
-        self.pos_idx = dict()
-        with open(os.path.join(self.root, self.filename), 'r') as f:
-            lines = f.readlines()
-        for line in lines:
-            pos1, pos2 = 0, 0
-            tmp = line.strip().split()
-            id1, id2, e1, e2, rel = tmp[:5]
-            rel = self.rel2id[rel]
-            # sentence = list(map(lambda x: self.w2id[x], tmp[5:-1]))
-            sentence = tmp[5:-1]
-
-            # filter the sentence that are too long.
-            if len(sentence) > self.max_sent_len and self.mode == 'train':
-                continue
-
-            line = '[CLS] ' + " ".join(sentence)
-            tokenized_text = self.tokenizer.tokenize(line)
-            indexed_tokens = self.tokenizer.convert_tokens_to_ids(tokenized_text)
-            # just use for testing.
-            segments_ids = [0] * len(indexed_tokens)
-            con = [indexed_tokens, segments_ids]
-
-            use_whole_bag = self.use_whole_bag
-            if self.mode == 'train' and not use_whole_bag:
-                key = (e1, e2, rel)
-            else:
-                key = (e1, e2)
-            self.pos_idx[key] = (pos1, pos2)
-            self.dict[key].append(con)
-            self.bag2rel[key].add(rel)
-
-        # only filter the data in training.
-        if self.mode == 'train':
-            self.filter_bag_size()
-
-    def __getitem__(self, item):
-        key = self.keys[item]
-        bag = []
-
-        # move 'to device' part into model.
-        for item in self.dict[key]:
-            bag.append(torch.cuda.LongTensor(item))
-
-        target = self.bag2rel[key]
-        # target in shape [1]
-        target = torch.cuda.LongTensor(list(target))
-
-        ret = {}
-        ret['bag'] = bag
-        ret['label'] = target
-        return ret
-
-    def collate_fn(self, data):
-        return data
-
-
-
 if __name__ == '__main__':
-    wiki = WIKI_TIME('./data', train_test='test')
-    out_dir = './manual_test'
-    if not os.path.exists(out_dir):
-        os.mkdir(out_dir)
-    wiki.generate_manual_test_case(os.path.join(out_dir, 'manual.test'))
-    wiki.compute_manual_test_metric('./manual_test/labeling_task/dic.dat')
+    # wiki = WIKI_TIME('./data', train_test='test', construct=True)
+    # out_dir = './manual_test'
+    # if not os.path.exists(out_dir):
+    #     os.mkdir(out_dir)
+    # wiki.generate_manual_test_case(os.path.join(out_dir, 'manual.test'))
+    # wiki.compute_manual_test_metric('./manual_test/labeling_task/dic.dat')
     # wiki.generate_manual_test_case(os.path.join(out_dir, 'manual.test_all'), generate_length=10000)
+    pass
 
 
 
