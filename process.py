@@ -455,7 +455,7 @@ def load_wiki_time(file_path:str, w2v, en2id):
 
             # for other lines.
             else:
-                # ['id', 'en1', 'en2', 'relation', 'time', 'pos1', 'pos2', 'sent']
+                # ['id', 'en1', 'en2', 'relation', 'pos1', 'pos2', 'time', 'sent']
                 line_splits = line.strip().split('\t', maxsplit=7)
                 id, _, _, tag_name, pos1, pos2, time_str, org_sent = line_splits
                 sent = [w2v[word] if w2v[word] else w2v['UNK'] for word in org_sent]
