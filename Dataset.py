@@ -97,7 +97,7 @@ class NYT_10(data.Dataset):
         # pos2_max, pos2_min = 0, 0
         self.bag2rel = defaultdict(set)
         self.pos_idx = dict()
-        with open(os.path.join(self.root, self.filename), 'r') as f:
+        with open(os.path.join(self.root, self.filename), 'r', encoding='utf8') as f:
             lines = f.readlines()
         for line in lines:
             pos1, pos2 = 0, 0
@@ -140,15 +140,15 @@ class NYT_10(data.Dataset):
             self.bag2rel[key].add(rel)
 
         # collect the data counter for each key item.
-        with open(os.path.join(self.root, 'tmp_' + self.mode + '.txt'), 'w') as f:
-            for key, value in self.dict.items():
-                f.write(str(key) + ':' + str(len(value)) + '\n')
-
-        with open(os.path.join(self.root, 'tmp_sent_' + self.mode + '.txt'), 'w') as f:
-            c = Counter()
-            c.update([len(it) for it in chain(self.dict.values())])
-            for key, value in c.items():
-                f.write(str(key) + ':' + str(value) + '\n')
+        # with open(os.path.join(self.root, 'tmp_' + self.mode + '.txt'), 'w') as f:
+        #     for key, value in self.dict.items():
+        #         f.write(str(key) + ':' + str(len(value)) + '\n')
+        #
+        # with open(os.path.join(self.root, 'tmp_sent_' + self.mode + '.txt'), 'w') as f:
+        #     c = Counter()
+        #     c.update([len(it) for it in chain(self.dict.values())])
+        #     for key, value in c.items():
+        #         f.write(str(key) + ':' + str(value) + '\n')
 
         # only filter the data in training.
         if self.mode == 'train':
@@ -209,7 +209,7 @@ class NYT_10(data.Dataset):
 
     # in riedel's case, we only use the word embedding as entity-embedding for query construction
     def read_in_en_vecs2(self):
-        with open(os.path.join(self.root, self.en2id_path), 'r') as f:
+        with open(os.path.join(self.root, self.en2id_path), 'r', encoding='utf8') as f:
             lines = f.readlines()
         en2id = {}
 
