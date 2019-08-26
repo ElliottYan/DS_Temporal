@@ -1,1 +1,3 @@
-id	entity_pair	relation	time	sentcandace_nelson	wesleyan_university
+version https://git-lfs.github.com/spec/v1
+oid sha256:f68515f800c5cfd4173f9596ef8eed81902c6c4f8b0426c340c08dbd046ba681
+size 68
